@@ -1231,6 +1231,24 @@ function SettingsPage({ profile, onProfileChange, onTasksMutated, theme, onTheme
       </SettingsSection>
 
       <SettingsSection
+        eyebrow="NOTES · JOURNAL"
+        title="Flomo"
+        sub="Two-way journal sync. Private RSS URL (PRO only — flomo → Settings → 私密 RSS) pulls memos into the journal every 5 min. Incoming webhook URL pushes every journal entry you log here to flomo as a memo tagged #lighthouse. Either side can be left blank."
+        status={syncs.flomo?.enabled ? "Connected" : "Not configured"}
+        statusOn={!!syncs.flomo?.enabled}>
+        {byGroup("flomo").map(f =>
+          <FieldRow key={f.key} field={f} drafts={drafts} setDrafts={setDrafts}
+                    onSave={saveField} onClear={clearField} savedMsg={savedMsg} />
+        )}
+        <div className="settings-actions">
+          <button className="settings-btn secondary" onClick={() => syncNow("flomo")} disabled={!syncs.flomo?.enabled}>
+            Sync now
+          </button>
+        </div>
+        <SyncStatusLine sync={syncs.flomo} msg={savedMsg["sync-flomo"]} label="Flomo"/>
+      </SettingsSection>
+
+      <SettingsSection
         eyebrow="DOCS"
         title="Notion"
         sub="Internal integration token + the tasks database ID. Don't forget to share the database with the integration in Notion."
@@ -1802,10 +1820,6 @@ function JournalPage({ entries, streak, startOfTodayMs, onAddEntry, onEditEntry,
         />
 
         <div className="journal-composer-foot">
-          <div className="journal-hint">
-            <span className="journal-hint-icon">✦</span>
-            A 90-second pause between tasks is the cheapest cognitive reset there is.
-          </div>
           <button
             className={`journal-save ${canSave ? "" : "disabled"}`}
             onClick={save}
@@ -1908,6 +1922,11 @@ function JournalEntry({ entry, isFirst, muted, onEdit, onDelete }) {
         <div className="journal-entry-line" />
       </div>
       <div className="journal-entry-body">
+        {entry.source && entry.source !== "self" && (
+          <span className="journal-entry-source" title={`Synced from ${entry.source}`}>
+            {entry.source}
+          </span>
+        )}
         {editing ? (
           <>
             <div className="journal-mood-row" style={{ marginBottom: 8 }}>

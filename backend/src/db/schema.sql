@@ -130,13 +130,21 @@ CREATE TABLE IF NOT EXISTS user_profile (
 
 -- Interstitial journal entries — quick "moments" written between tasks.
 -- Mood is one of: calm | focused | scattered | drained | buzzy | low.
+-- Source identifies origin: 'self' (typed in Lighthouse) or 'flomo' (synced
+-- from flomo RSS). external_id is the source's stable id, used to dedup on
+-- repeated pulls. Self-captured entries have NULL external_id.
 CREATE TABLE IF NOT EXISTS journal_entries (
-  id          TEXT PRIMARY KEY,
-  mood        TEXT NOT NULL,
-  note        TEXT NOT NULL,
-  created_at  TEXT NOT NULL
+  id           TEXT PRIMARY KEY,
+  mood         TEXT NOT NULL,
+  note         TEXT NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'self',
+  external_id  TEXT,
+  created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_journal_created ON journal_entries(created_at);
+-- Partial unique index on (source, external_id) is created in client.ts
+-- AFTER the ALTER TABLE migration adds those columns. Putting it here
+-- breaks bootstrapping on a DB created before the multi-source change.
 
 -- LLM-derived enrichment for synced tasks: a semantic theme, the primary goal
 -- it ladders to (any horizon), and a 0-1 weight for relative importance.

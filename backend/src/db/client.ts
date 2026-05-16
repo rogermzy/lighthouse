@@ -37,6 +37,20 @@ if (!calCols.some((c) => c.name === "date")) {
 }
 db.exec("CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_events(date)");
 
+// Additive ALTERs for journal_entries — `source` + `external_id` for the
+// flomo two-way sync. Older DBs created before this change lack the columns.
+const journalCols = db.prepare("PRAGMA table_info(journal_entries)").all() as { name: string }[];
+if (!journalCols.some((c) => c.name === "source")) {
+  db.exec("ALTER TABLE journal_entries ADD COLUMN source TEXT NOT NULL DEFAULT 'self'");
+}
+if (!journalCols.some((c) => c.name === "external_id")) {
+  db.exec("ALTER TABLE journal_entries ADD COLUMN external_id TEXT");
+}
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_external
+    ON journal_entries(source, external_id) WHERE external_id IS NOT NULL
+`);
+
 // Additive ALTER for the user-controlled `position` column (drag-to-reorder)
 // and the source-owned `url` back-link. SQLite has no
 // `ADD COLUMN IF NOT EXISTS`, so we probe via PRAGMA first.

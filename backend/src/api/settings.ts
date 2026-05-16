@@ -21,6 +21,9 @@ const FIELDS: Record<string, FieldDef> = {
 
   WORKFLOWY_API_KEY:    { secret: true,  group: "workflowy", label: "API key",            placeholder: "wfy_…" },
   WORKFLOWY_PARENT_ID:  { secret: false, group: "workflowy", label: "Parent node",        placeholder: 'inbox · today · or a node id' },
+
+  FLOMO_RSS_URL:        { secret: true,  group: "flomo",     label: "Private RSS URL",    placeholder: "https://flomoapp.com/users/…/rss/…/feed.xml" },
+  FLOMO_WEBHOOK_URL:    { secret: true,  group: "flomo",     label: "Incoming webhook",   placeholder: "https://flomoapp.com/iwh/…/…/" },
 };
 
 function maskValue(value: string): string {

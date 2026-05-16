@@ -283,6 +283,27 @@ tasksApi.patch("/:id", async (c) => {
         shouldLogCompletion = true;
       }
       doneTransition = true;
+
+      // Auto-advance Now: finishing the focus task should immediately tee
+      // up the next Today task — that's the rhythm of a focus session. The
+      // just-done task moves back to Today's lane (where it shows as a done
+      // row until midnight, then falls off), and the highest-position open
+      // Today task becomes the new Now. If Today is empty, Now stays empty
+      // and the FocusCard renders its empty state.
+      if (prior.lane === "now") {
+        db.prepare("UPDATE tasks SET lane = 'today' WHERE id = :id").run({ id });
+        const next = db.prepare(`
+          SELECT id FROM tasks
+          WHERE lane = 'today' AND done_at IS NULL AND id != :id
+          ORDER BY position, id
+          LIMIT 1
+        `).get({ id }) as { id: string } | undefined;
+        if (next) {
+          db.prepare("UPDATE tasks SET lane = 'now' WHERE id = :id").run({ id: next.id });
+        }
+        renumberLane("today");
+        renumberLane("now");
+      }
     } else if (body.done === false && prior.done_at !== null) {
       doneTransition = false;
     }

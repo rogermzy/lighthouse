@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db, nowIso } from "../db/client.js";
 
-type EntryRow = { id: string; mood: string; note: string; created_at: string };
+type EntryRow = { id: string; mood: string; note: string; created_at: string; source?: string };
 
 // Canonical mood palette. Frontend fetches this via GET /api/journal so the
 // two ends can't drift — add a mood here and the chips update on next page load.
@@ -18,7 +18,7 @@ const VALID_MOODS = new Set(MOODS.map((m) => m.id));
 const NOTE_MAX_LEN = 2000;
 
 const selectRecent = db.prepare(`
-  SELECT id, mood, note, created_at FROM journal_entries
+  SELECT id, mood, note, source, created_at FROM journal_entries
   WHERE created_at >= :cutoff
   ORDER BY created_at DESC
 `);
@@ -27,7 +27,7 @@ const selectRecent = db.prepare(`
 // the stored UTC ISO into the server's TZ before extracting the date, so the
 // boundary lines up with what the user calls "today".
 const selectByLocalDate = db.prepare(`
-  SELECT id, mood, note, created_at FROM journal_entries
+  SELECT id, mood, note, source, created_at FROM journal_entries
   WHERE date(created_at, 'localtime') = :day
   ORDER BY created_at DESC
 `);
@@ -44,7 +44,13 @@ const insertEntry = db.prepare(`
 `);
 
 function toWire(r: EntryRow) {
-  return { id: r.id, mood: r.mood, note: r.note, createdAt: r.created_at };
+  return {
+    id: r.id,
+    mood: r.mood,
+    note: r.note,
+    source: r.source ?? "self",
+    createdAt: r.created_at,
+  };
 }
 
 function computeStreak(): number {
@@ -109,7 +115,7 @@ const updateEntry = db.prepare(`
 `);
 const deleteEntryStmt = db.prepare(`DELETE FROM journal_entries WHERE id = :id`);
 const selectEntryById = db.prepare(`
-  SELECT id, mood, note, created_at FROM journal_entries WHERE id = :id
+  SELECT id, mood, note, source, created_at FROM journal_entries WHERE id = :id
 `);
 
 journalApi.patch("/:id", async (c) => {
@@ -154,6 +160,11 @@ journalApi.post("/", async (c) => {
   const created_at = nowIso();
   insertEntry.run({ id, mood, note, created_at });
 
+  // Push to flomo if configured. Tagged #lighthouse so the next RSS pull
+  // recognizes it as our own and skips re-importing (circular-sync guard).
+  // Fire-and-forget — never blocks the response.
+  pushToFlomo({ note, mood });
+
   return c.json(
     {
       entry: toWire({ id, mood, note, created_at }),
@@ -162,3 +173,28 @@ journalApi.post("/", async (c) => {
     201
   );
 });
+
+/**
+ * Push to flomo's incoming webhook. The webhook accepts JSON with `content`
+ * + optional `content_type` ("markdown" for rich rendering). We tag with
+ * `#lighthouse` (so the RSS pull skips it on the circular trip) and the
+ * mood (so flomo's tag view groups by mood).
+ */
+function pushToFlomo(entry: { note: string; mood: string }): void {
+  const url = process.env.FLOMO_WEBHOOK_URL;
+  if (!url) return;
+  const content = `${entry.note}\n\n#lighthouse #${entry.mood}`;
+  void fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, content_type: "markdown" }),
+  })
+    .then((res) => {
+      if (!res.ok) {
+        console.warn(`[flomo-push] ${res.status}: ${res.statusText}`);
+      }
+    })
+    .catch((err) => {
+      console.warn(`[flomo-push] error: ${String(err)}`);
+    });
+}

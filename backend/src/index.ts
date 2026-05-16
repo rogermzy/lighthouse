@@ -39,6 +39,7 @@ import { clickupConnector } from "./connectors/clickup.js";
 import { notionConnector } from "./connectors/notion.js";
 import { thingsConnector } from "./connectors/things.js";
 import { workflowyConnector } from "./connectors/workflowy.js";
+import { flomoConnector } from "./connectors/flomo.js";
 
 const FRONTEND_ROOT = join(__dirname, "..", "..");
 
@@ -119,9 +120,9 @@ serve(
     // Every connector's isEnabled() runs on each tick, so the runner activates
     // sources as soon as their keys appear in process.env — no restart needed
     // when a key is saved via the settings page.
-    const allConnectors = [gcalConnector, gmailConnector, gtasksConnector, clickupConnector, notionConnector, thingsConnector, workflowyConnector];
+    const allConnectors = [gcalConnector, gmailConnector, gtasksConnector, clickupConnector, notionConnector, thingsConnector, workflowyConnector, flomoConnector];
     Promise.all(
-      [clickupConnector, notionConnector, thingsConnector, workflowyConnector].map(async (c) => {
+      [clickupConnector, notionConnector, thingsConnector, workflowyConnector, flomoConnector].map(async (c) => {
         const on = await c.isEnabled();
         console.log(`[lighthouse] ${c.name}: ${on ? "enabled" : "not configured"}`);
       })

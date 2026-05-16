@@ -74,13 +74,6 @@ function fmtClock(seconds) {
 
 /* ─────────────────────── sidebar ─────────────────────── */
 function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, journalStreak }) {
-  const views = [
-    { id: "today",    label: "Today",       glyph: "◐", count: counts.today },
-    { id: "upcoming", label: "This week",   glyph: "▷", count: counts.week },
-    { id: "anytime",  label: "Anytime",     glyph: "○", count: 24 },
-    { id: "someday",  label: "Later",       glyph: "·", count: 41 },
-  ];
-
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -89,6 +82,34 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
           <div className="brand-name">Lighthouse</div>
           <div className="brand-sub">a calm signal</div>
         </div>
+      </div>
+
+      {/* Tasks — primary view. Three slot squares fill based on today's count. */}
+      <div className="nav-section tasks-section">
+        <button
+          className={`nav-tasks ${activeView === "today" ? "active" : ""}`}
+          onClick={() => setView("today")}>
+          <div className="nav-tasks-halftone" />
+          <div className="nav-tasks-main">
+            <div className="nav-tasks-eyebrow">
+              <span className="nav-tasks-bullet" />
+              TODAY'S PLAN
+            </div>
+            <div className="nav-tasks-title">Tasks</div>
+            <div className="nav-tasks-sub">
+              {counts.now > 0 ? `${counts.now} now · ` : ""}
+              {counts.today} today · {counts.week} this week
+            </div>
+          </div>
+          <div className="nav-tasks-slots">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className={`nav-tasks-slot ${i < counts.today ? "filled" : ""}`}
+              />
+            ))}
+          </div>
+        </button>
       </div>
 
       {/* Inbox gets its own section — it's the catch-all for the ADHD brain */}
@@ -199,20 +220,6 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
       </div>
 
       <div className="nav-section">
-        <h4>Tasks</h4>
-        {views.map(v => (
-          <button
-            key={v.id}
-            className={`nav-item ${activeView === v.id ? "active" : ""}`}
-            onClick={() => setView(v.id)}>
-            <span className="nav-glyph">{v.glyph}</span>
-            <span className="nav-label">{v.label}</span>
-            <span className="nav-count">{v.count}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="nav-section">
         <h4>Filters</h4>
         {Object.entries(TAGS).slice(0,4).map(([id, t]) => (
           <div key={id} className="source-row">
@@ -245,7 +252,7 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
 }
 
 /* ─────────────────────── focus / now card ─────────────────────── */
-function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway }) {
+function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway, onMarkDone }) {
   const TOTAL = 25 * 60; // 25-minute pomodoro
   const [running, setRunning] = useState(false);
   const [remaining, setRemaining] = useState(TOTAL);
@@ -262,7 +269,28 @@ function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway }) 
   const C = 2 * Math.PI * 52;
   const dash = C * pct;
 
-  if (!task) return null;
+  // Empty Now — render a compact prompt card so the section never silently
+  // disappears (previously this returned null, which made it look like a bug
+  // after the user clicked Step away).
+  if (!task) {
+    return (
+      <div className="focus-card empty">
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div className="focus-eyebrow">
+            <span className="focus-dot" />
+            Right now · nothing in focus
+          </div>
+          <h2 className="focus-title focus-title-empty">
+            <em>Pick what's next.</em>
+          </h2>
+          <p className="focus-note">
+            Click <b style={{ color: "rgba(244,236,219,0.9)" }}>▶ Start</b> on any Today task
+            to begin a 25-minute focus block. The task lifts here; the timer wakes up.
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="focus-card">
       <div style={{ position: "relative", zIndex: 1 }}>
@@ -298,6 +326,15 @@ function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway }) 
               title="Move back to Today — pick a different focus later"
               onClick={() => onStepAway(task.id)}>
               ← Step away
+            </button>
+          )}
+          {onMarkDone && (
+            <button
+              className="timer-btn primary"
+              style={{ padding: "2px 12px", fontSize: 11 }}
+              title="Mark done — the next Today task auto-advances into Now"
+              onClick={() => onMarkDone(task.id)}>
+              ✓ Done
             </button>
           )}
         </div>
@@ -1338,6 +1375,7 @@ function App() {
   }, [tasks]);
 
   const counts = {
+    now:   tasksByLane.now && !doneSet.has(tasksByLane.now.id) ? 1 : 0,
     today: tasksByLane.today.filter(t => !doneSet.has(t.id)).length,
     week:  tasksByLane.week.filter(t => !doneSet.has(t.id)).length,
     inbox: inbox.length,
@@ -1454,6 +1492,12 @@ function App() {
             setFocusMode={setFocusMode}
             onOpenDetail={openDetail}
             onStepAway={(id) => patchLane(id, "today")}
+            onMarkDone={async (id) => {
+              // Use the same path as the row checkbox, then refresh so the
+              // server's auto-advance (today's top → now) reflects in the UI.
+              toggleDone(id);
+              await refreshTasks();
+            }}
           />
           <TodayList
             tasks={tasksByLane.today}
@@ -1548,7 +1592,13 @@ function App() {
         task={detailTask}
         goals={goals}
         onClose={() => setDetailTaskId(null)}
-        onToggleDone={(id) => { toggleDone(id); }}
+        onToggleDone={(id) => {
+          toggleDone(id);
+          // Close the modal — the action is done, and keeping it open would
+          // immediately surface a "Mark undone" button that's almost never
+          // what the user wants next.
+          setDetailTaskId(null);
+        }}
         onChangeLane={async (id, lane) => {
           try {
             const r = await fetch(`/api/tasks/${id}`, {

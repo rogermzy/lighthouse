@@ -1795,6 +1795,106 @@ input, textarea {
 }
 .nav-goals-ring + .nav-goals-ring { margin-left: -8px; }
 
+/* ─── Tasks nav card — primary view button at the top of the sidebar ─── */
+.nav-tasks {
+  position: relative;
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  overflow: hidden;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  cursor: pointer;
+}
+.nav-tasks:hover { border-color: var(--ink-2); }
+.nav-tasks.active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.nav-tasks-halftone {
+  position: absolute;
+  bottom: -22px; right: -28px;
+  width: 110px; height: 110px;
+  background-image: radial-gradient(circle at center, var(--accent) 1px, transparent 1.3px);
+  background-size: 6px 6px;
+  -webkit-mask-image: radial-gradient(circle at 70% 70%, black, transparent 70%);
+          mask-image: radial-gradient(circle at 70% 70%, black, transparent 70%);
+  opacity: 0.35;
+  pointer-events: none;
+}
+.nav-tasks-main { position: relative; z-index: 1; min-width: 0; }
+.nav-tasks-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.nav-tasks.active .nav-tasks-eyebrow { color: rgba(244,236,219,0.55); }
+.nav-tasks-bullet {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  display: inline-block;
+}
+.nav-tasks-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+.nav-tasks-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.nav-tasks.active .nav-tasks-sub { color: rgba(244,236,219,0.6); }
+.nav-tasks-slots {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 3px;
+}
+.nav-tasks-slot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid var(--rule);
+  background: transparent;
+}
+.nav-tasks-slot.filled {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.nav-tasks.active .nav-tasks-slot { border-color: rgba(244,236,219,0.3); }
+.nav-tasks.active .nav-tasks-slot.filled {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ─── Empty Now state on the focus card ─── */
+.focus-card.empty {
+  min-height: 140px;
+  opacity: 0.88;
+}
+.focus-title-empty {
+  font-style: italic;
+  color: rgba(244,236,219,0.85);
+}
+
 /* Suggest button (used in TopBar and Goals page) */
 .suggest-btn {
   display: inline-flex;
@@ -3935,7 +4035,7 @@ textarea.editable-input { line-height: 1.5; }
 .journal-composer-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 14px;
   margin-top: 16px;
   padding-top: 14px;
@@ -4074,6 +4174,21 @@ textarea.editable-input { line-height: 1.5; }
 
 /* ── edit + delete on journal entries ── */
 .journal-entry-mood { position: relative; }
+.journal-entry-source {
+  position: absolute;
+  top: 10px; right: 12px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 2px 6px;
+  pointer-events: none;
+}
+.journal-entry-body { position: relative; }
 .journal-entry-tools {
   margin-left: auto;
   display: inline-flex;
