@@ -290,8 +290,18 @@ tasksApi.patch("/:id", async (c) => {
       // row until midnight, then falls off), and the highest-position open
       // Today task becomes the new Now. If Today is empty, Now stays empty
       // and the FocusCard renders its empty state.
+      //
+      // Position note: we explicitly push the done-task to MAX(position)+1
+      // in the target lane so it sinks below the open rows — otherwise it
+      // keeps its now-lane position (typically 1) and visually outranks the
+      // freshly-renumbered open tasks that also start at 1.
       if (prior.lane === "now") {
-        db.prepare("UPDATE tasks SET lane = 'today' WHERE id = :id").run({ id });
+        db.prepare(`
+          UPDATE tasks SET
+            lane = 'today',
+            position = (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE lane = 'today')
+          WHERE id = :id
+        `).run({ id });
         const next = db.prepare(`
           SELECT id FROM tasks
           WHERE lane = 'today' AND done_at IS NULL AND id != :id

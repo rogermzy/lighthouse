@@ -1266,7 +1266,10 @@ function App() {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
-    fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+    // Return the fetch promise so callers that need to refresh *after* the
+    // server has committed (FocusCard Done → auto-advance, modal Mark done →
+    // refresh new Now task) can await it. Fire-and-forget callers ignore.
+    return fetch(`/api/tasks/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ done: willBeDone }),
@@ -1493,9 +1496,10 @@ function App() {
             onOpenDetail={openDetail}
             onStepAway={(id) => patchLane(id, "today")}
             onMarkDone={async (id) => {
-              // Use the same path as the row checkbox, then refresh so the
-              // server's auto-advance (today's top → now) reflects in the UI.
-              toggleDone(id);
+              // Await the PATCH so the auto-advance commit is visible to
+              // refreshTasks — otherwise the GET can race ahead of the PATCH
+              // and see the pre-promotion state, leaving the FocusCard stale.
+              await toggleDone(id);
               await refreshTasks();
             }}
           />
@@ -1592,12 +1596,13 @@ function App() {
         task={detailTask}
         goals={goals}
         onClose={() => setDetailTaskId(null)}
-        onToggleDone={(id) => {
-          toggleDone(id);
-          // Close the modal — the action is done, and keeping it open would
-          // immediately surface a "Mark undone" button that's almost never
-          // what the user wants next.
+        onToggleDone={async (id) => {
+          // Close immediately for snappy UX; PATCH + refresh run in the
+          // background so the auto-advance (if the task was the now-task)
+          // surfaces in the FocusCard.
           setDetailTaskId(null);
+          await toggleDone(id);
+          await refreshTasks();
         }}
         onChangeLane={async (id, lane) => {
           try {
