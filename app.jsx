@@ -1584,6 +1584,21 @@ function App() {
     meetings:   CALENDAR.events.length,
   };
 
+  // Hide-completed toggle on the Tasks page. Persisted to localStorage so it
+  // survives reloads. Default is hide — Tasks is a planning surface, and
+  // recently-done rows just add noise to the lane lists.
+  const [tasksHideCompleted, setTasksHideCompleted] = useState(() => {
+    const saved = localStorage.getItem("lighthouse.tasksHideCompleted");
+    return saved === null ? true : saved === "true";
+  });
+  useEffect(() => {
+    localStorage.setItem("lighthouse.tasksHideCompleted", String(tasksHideCompleted));
+  }, [tasksHideCompleted]);
+  const stripDone = useCallback(
+    (arr) => tasksHideCompleted ? arr.filter(t => !doneSet.has(t.id)) : arr,
+    [tasksHideCompleted, doneSet],
+  );
+
   const addInboxItem = async (title) => {
     if (typeof title !== "string" || !title.trim()) return;
     try {
@@ -1630,7 +1645,7 @@ function App() {
           addInboxItem={addInboxItem}
           weekSlot={
             <OnDeck
-              tasks={tasksByLane.this_week}
+              tasks={stripDone(tasksByLane.this_week)}
               toggleDone={toggleDone}
               doneSet={doneSet}
               onOpenDetail={openDetail}
@@ -1641,11 +1656,13 @@ function App() {
               }}
             />
           }
-          thisMonthTasks={tasksByLane.this_month}
-          backlogTasks={tasksByLane.backlog}
+          thisMonthTasks={stripDone(tasksByLane.this_month)}
+          backlogTasks={stripDone(tasksByLane.backlog)}
           toggleDone={toggleDone}
           doneSet={doneSet}
           onOpenDetail={openDetail}
+          hideCompleted={tasksHideCompleted}
+          onToggleHideCompleted={() => setTasksHideCompleted(v => !v)}
         />
       ) : activeView === "goals" ? (
         <GoalsPage

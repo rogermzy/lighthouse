@@ -420,6 +420,7 @@ function TasksPage({
   weekSlot,
   thisMonthTasks, backlogTasks,
   toggleDone, doneSet, onOpenDetail,
+  hideCompleted, onToggleHideCompleted,
 }) {
   const [draft, setDraft] = useState("");
   const [filter, setFilter] = useState("all");
@@ -449,6 +450,14 @@ function TasksPage({
             All the things.<br/>
             <em>Triage, sort, defer.</em>
           </h1>
+        </div>
+        <div className="topbar-actions">
+          <button
+            className="hide-completed-toggle"
+            onClick={onToggleHideCompleted}
+            title={hideCompleted ? "Show completed tasks" : "Hide completed tasks"}>
+            {hideCompleted ? "Show completed" : "Hide completed"}
+          </button>
         </div>
       </div>
 
