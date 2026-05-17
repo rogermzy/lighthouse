@@ -374,6 +374,56 @@ function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway, on
 /* ─────────────────────── today list ─────────────────────── */
 const TODAY_CAP = 3;
 const REC_MIN_WEIGHT = 0.3;
+// Two weights within this distance are treated as equal — the LLM clusters
+// scores around round numbers (0.5, 0.7) and we don't want imaginary precision
+// to determine ordering. Drops the decision to the next tiebreaker.
+const REC_WEIGHT_EPSILON = 0.02;
+
+// Lower rank wins. Anything explicitly dated beats undated;
+// "today" beats "tomorrow" beats everything else dated (weekdays, "this week").
+function dueRank(due) {
+  if (!due) return 3;
+  const d = String(due).toLowerCase();
+  if (d === "today") return 0;
+  if (d === "tomorrow") return 1;
+  return 2;
+}
+
+// Ranking for the recommendation slots. Tiebreaker chain:
+//   1. weight desc (with epsilon — see REC_WEIGHT_EPSILON)
+//   2. due-soon asc (dated tasks beat undated; today > tomorrow > rest)
+//   3. user's Week-lane position asc — stable across refreshes and
+//      gives the user implicit control via drag-to-reorder.
+// Then theme spread: first pass picks ≤1 per theme so the three slots
+// aren't all one cluster (e.g. all email triage). If strict spread would
+// leave slots empty, a second pass allows repeats.
+function rankRecommendations(eligible, slotsLeft) {
+  const ranked = [...eligible].sort((a, b) => {
+    const dw = (b.weight ?? 0) - (a.weight ?? 0);
+    if (Math.abs(dw) > REC_WEIGHT_EPSILON) return dw;
+    const dd = dueRank(a.due) - dueRank(b.due);
+    if (dd !== 0) return dd;
+    return (a.position ?? 0) - (b.position ?? 0);
+  });
+
+  const picks = [];
+  const usedThemes = new Set();
+  for (const t of ranked) {
+    if (picks.length >= slotsLeft) break;
+    const theme = t.theme || "_untagged";
+    if (usedThemes.has(theme)) continue;
+    picks.push(t);
+    usedThemes.add(theme);
+  }
+  if (picks.length < slotsLeft) {
+    const pickedIds = new Set(picks.map(t => t.id));
+    for (const t of ranked) {
+      if (picks.length >= slotsLeft) break;
+      if (!pickedIds.has(t.id)) picks.push(t);
+    }
+  }
+  return picks;
+}
 
 function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, onOpenDetail, onStartNow, nowTaskId, onReorder }) {
   const openCount = tasks.filter(t => !doneSet.has(t.id)).length;
@@ -392,16 +442,17 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
     setHoverId(null);
   };
 
-  // Pick the highest-weighted week-lane items to fill the open slots. Excludes
-  // anything already done today (defensive — done items live in `tasks`, not
-  // `weekTasks`, but a stale sync could double up).
+  // Pick the highest-weighted week-lane items to fill the open slots, with a
+  // proper tiebreaker chain + theme spread. See rankRecommendations above.
+  // Excludes anything already in Today (defensive — done items live in `tasks`,
+  // not `weekTasks`, but a stale sync could double up).
   const recommendations = useMemo(() => {
     if (slotsLeft === 0) return [];
     const todayIds = new Set(tasks.map(t => t.id));
-    return (weekTasks || [])
-      .filter(t => (t.weight ?? 0) >= REC_MIN_WEIGHT && !todayIds.has(t.id))
-      .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
-      .slice(0, slotsLeft);
+    const eligible = (weekTasks || []).filter(
+      t => (t.weight ?? 0) >= REC_MIN_WEIGHT && !todayIds.has(t.id)
+    );
+    return rankRecommendations(eligible, slotsLeft);
   }, [weekTasks, tasks, slotsLeft]);
 
   // One "acting" lock per row covers both Pull and Defer — they're mutually
