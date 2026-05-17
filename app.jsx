@@ -118,9 +118,15 @@ function fmtClock(seconds) {
 }
 
 /* ─────────────────────── sidebar ─────────────────────── */
-function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, journalStreak }) {
+function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, journalStreak, collapsed, onToggleCollapse }) {
   return (
     <aside className="sidebar">
+      <button
+        className="panel-collapse-btn panel-collapse-left"
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        onClick={onToggleCollapse}>
+        {collapsed ? "›" : "‹"}
+      </button>
       <div className="brand">
         <div className="brand-mark" />
         <div>
@@ -1292,6 +1298,13 @@ function App() {
   const [activeView, setActiveView] = useState("today");
   const [doneSet, setDoneSet] = useState(() => window.__initialDoneSet ?? new Set());
   const [focusMode, setFocusMode] = useState(false);
+  // Manual collapse toggles — persisted to localStorage so the chosen
+  // layout survives reloads. Independent of the responsive breakpoints
+  // (those still take over below their threshold widths).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("lighthouse.sidebarCollapsed") === "true");
+  const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem("lighthouse.railCollapsed") === "true");
+  useEffect(() => { localStorage.setItem("lighthouse.sidebarCollapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => { localStorage.setItem("lighthouse.railCollapsed", String(railCollapsed)); }, [railCollapsed]);
   const [toast, setToast] = useState(null); // { kind: "warn"|"ok", text: string }
   const [capModal, setCapModal] = useState(null); // { newItemTitle, retry: async () => Response }
   const [capBusy, setCapBusy] = useState(false);
@@ -1700,7 +1713,7 @@ function App() {
   };
 
   return (
-    <div className={`app ${focusMode ? "focus-mode" : ""}`} data-screen-label={
+    <div className={`app ${focusMode ? "focus-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${railCollapsed ? "rail-collapsed" : ""}`} data-screen-label={
       activeView === "calendar" ? "Calendar" :
       activeView === "tasks"    ? "Tasks" :
       activeView === "goals"    ? "Goals" :
@@ -1715,7 +1728,25 @@ function App() {
         profile={profile}
         journalTodayEntries={journalTodayEntries}
         journalStreak={journalStreak}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(c => !c)}
       />
+      {sidebarCollapsed && (
+        <button
+          className="panel-expand-tab panel-expand-left"
+          title="Expand sidebar"
+          onClick={() => setSidebarCollapsed(false)}>
+          ›
+        </button>
+      )}
+      {railCollapsed && (
+        <button
+          className="panel-expand-tab panel-expand-right"
+          title="Expand right rail"
+          onClick={() => setRailCollapsed(false)}>
+          ‹
+        </button>
+      )}
 
       {activeView === "calendar" ? (
         <CalendarPage
@@ -1855,6 +1886,12 @@ function App() {
       )}
 
       <aside className="rail">
+        <button
+          className="panel-collapse-btn panel-collapse-right"
+          title="Collapse right rail"
+          onClick={() => setRailCollapsed(true)}>
+          ›
+        </button>
         {activeView === "journal" ? (
           <JournalDateRail
             days={journalDays}
