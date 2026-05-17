@@ -1731,14 +1731,9 @@ function App() {
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(c => !c)}
       />
-      {sidebarCollapsed && (
-        <button
-          className="panel-expand-tab panel-expand-left"
-          title="Expand sidebar"
-          onClick={() => setSidebarCollapsed(false)}>
-          ›
-        </button>
-      )}
+      {/* No floating expand tab for the left — the sidebar stays visible
+          as an icon-only column when "collapsed", and its built-in
+          panel-collapse-btn toggles it back to full width. */}
       {railCollapsed && (
         <button
           className="panel-expand-tab panel-expand-right"

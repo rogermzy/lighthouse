@@ -4769,23 +4769,65 @@ textarea.editable-input { line-height: 1.5; }
 .panel-expand-left  { left: 0;  border-radius: 0 6px 6px 0; border-left: 0; }
 .panel-expand-right { right: 0; border-radius: 6px 0 0 6px; border-right: 0; }
 
-/* Collapsed states — same grid math as the responsive breakpoints, but
-   applied via the user-toggled class so the user can dictate layout
-   independent of viewport width. */
-.app.sidebar-collapsed { grid-template-columns: 0 1fr 320px; }
+/* Collapsed states. Rail: hidden entirely (the rail content has its own
+   page surfaces). Sidebar: NOT hidden — shrinks to a 64px icon strip so
+   navigation stays one-click reachable. Same icon-only treatment as the
+   ≤ 900px responsive breakpoint, reused via shared selectors below. */
+.app.sidebar-collapsed { grid-template-columns: 64px 1fr 320px; }
 .app.rail-collapsed    { grid-template-columns: 248px 1fr 0; }
-.app.sidebar-collapsed.rail-collapsed { grid-template-columns: 0 1fr 0; }
-.app.sidebar-collapsed .sidebar { display: none; }
-.app.rail-collapsed    .rail    { display: none; }
-/* Re-derive at narrower tiers so user collapse still works at all sizes */
+.app.sidebar-collapsed.rail-collapsed { grid-template-columns: 64px 1fr 0; }
+.app.rail-collapsed .rail { display: none; }
+
+/* Sidebar icon-only treatment — applied when user manually collapses OR
+   when viewport ≤ 900px (see media query in the responsive tiers below).
+   Duplicating the rule set keeps things explicit. */
+.app.sidebar-collapsed .sidebar { padding: 14px 6px; }
+.app.sidebar-collapsed .brand-name,
+.app.sidebar-collapsed .brand-sub,
+.app.sidebar-collapsed .nav-tasks-eyebrow, .app.sidebar-collapsed .nav-tasks-title,
+.app.sidebar-collapsed .nav-tasks-sub, .app.sidebar-collapsed .nav-tasks-slots,
+.app.sidebar-collapsed .nav-inbox-eyebrow, .app.sidebar-collapsed .nav-inbox-title,
+.app.sidebar-collapsed .nav-inbox-sub, .app.sidebar-collapsed .nav-inbox-count,
+.app.sidebar-collapsed .nav-calendar-eyebrow, .app.sidebar-collapsed .nav-calendar-title,
+.app.sidebar-collapsed .nav-calendar-sub, .app.sidebar-collapsed .nav-calendar-stat,
+.app.sidebar-collapsed .nav-goals-eyebrow, .app.sidebar-collapsed .nav-goals-title,
+.app.sidebar-collapsed .nav-goals-sub, .app.sidebar-collapsed .nav-goals-rings,
+.app.sidebar-collapsed .nav-journal-eyebrow, .app.sidebar-collapsed .nav-journal-title,
+.app.sidebar-collapsed .nav-journal-sub, .app.sidebar-collapsed .nav-journal-strip,
+.app.sidebar-collapsed .nav-item .nav-label,
+.app.sidebar-collapsed .sidebar h4,
+.app.sidebar-collapsed .sidebar .source-row,
+.app.sidebar-collapsed .sidebar .source-name,
+.app.sidebar-collapsed .sidebar-footer > div:last-child {
+  display: none;
+}
+.app.sidebar-collapsed .nav-tasks, .app.sidebar-collapsed .nav-inbox,
+.app.sidebar-collapsed .nav-calendar, .app.sidebar-collapsed .nav-goals,
+.app.sidebar-collapsed .nav-journal {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 12px 6px;
+  min-height: 44px;
+}
+.app.sidebar-collapsed .nav-tasks-halftone,
+.app.sidebar-collapsed .nav-inbox-halftone,
+.app.sidebar-collapsed .nav-calendar-halftone,
+.app.sidebar-collapsed .nav-goals-halftone,
+.app.sidebar-collapsed .nav-journal-halftone { display: none; }
+.app.sidebar-collapsed .nav-item { justify-content: center; padding: 8px; }
+.app.sidebar-collapsed .sidebar-footer { justify-content: center; }
+.app.sidebar-collapsed .sidebar-footer .avatar { margin: 0; }
+.app.sidebar-collapsed .nav-icon-only { display: inline-flex; }
+
+/* Re-derive grid at narrower tiers so user-rail-collapse still works. */
 @media (max-width: 1280px) {
-  .app.sidebar-collapsed { grid-template-columns: 0 1fr 280px; }
+  .app.sidebar-collapsed { grid-template-columns: 64px 1fr 280px; }
   .app.rail-collapsed    { grid-template-columns: 220px 1fr 0; }
-  .app.sidebar-collapsed.rail-collapsed { grid-template-columns: 0 1fr 0; }
+  .app.sidebar-collapsed.rail-collapsed { grid-template-columns: 64px 1fr 0; }
 }
 @media (max-width: 1100px) {
-  .app.sidebar-collapsed { grid-template-columns: 0 1fr; }
-  /* Rail already hidden at this width — rail-collapsed state is a no-op. */
+  /* Rail already hidden — rail-collapsed state is a no-op below 1100. */
+  .app.sidebar-collapsed { grid-template-columns: 64px 1fr; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
