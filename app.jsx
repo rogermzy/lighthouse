@@ -48,6 +48,15 @@ const Icon = {
       <path d="M1.5 2.5h9L7 6.5v3.5L5 9V6.5L1.5 2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
     </svg>
   ),
+  // Clipboard / briefing-notes icon — used for the "Context for the agent"
+  // affordance on goal cards. Reads as "background info" / "notes."
+  notes: (p) => (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" {...p}>
+      <rect x="2.5" y="2" width="9" height="11" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M5 1.5v1.5M9 1.5v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <path d="M4.5 6h5M4.5 8.5h5M4.5 11h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  ),
   // Hierarchical splitter — one parent node branching down to three children.
   // Used for the "Break it down" action on annual goals: the visual reads
   // immediately as decomposition (1 → 3) without leaning on an emoji.

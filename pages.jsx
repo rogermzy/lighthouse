@@ -1081,6 +1081,72 @@ function monthToQuarter(month) {
   return map[month];
 }
 
+// ContextModal — small focused editor for the per-goal "context for the agent"
+// field. Opened from the notes-icon button on each annual goal card. Saves
+// on commit; doesn't auto-save on close so the user can cancel via Escape.
+function ContextModal({ annual, onClose, onSave }) {
+  const [draft, setDraft] = React.useState(annual.context || "");
+  const [saving, setSaving] = React.useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await onSave(draft.trim()); } finally { setSaving(false); }
+  };
+  // Escape closes without saving (matches OS-native modal behavior).
+  React.useEffect(() => {
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-context" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-halftone" />
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+        <div className="modal-eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon.notes style={{ color: "var(--accent)" }} />
+          <span>Context for the agent</span>
+        </div>
+        <h2 className="breakdown-annual-title">{annual.title}</h2>
+        <div className="breakdown-annual-intent" style={{ marginBottom: 18 }}>
+          Strategy, constraints, what's already tried, available resources. The breakdown agent reads this on every run — the more specific you are here, the more grounded the proposals.
+        </div>
+        <textarea
+          autoFocus
+          rows={12}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={`Examples:
+- "We have 6 months runway and no engineering team. Distribution is Twitter + cold email."
+- "Already tried paid ads in Q1 (CAC too high). Best results: long-form SEO + partner intros."
+- "Avoid anything that requires a sales team — we're solo founder + 1 PT contractor."`}
+          style={{
+            width: "100%",
+            fontFamily: "inherit",
+            fontSize: 13,
+            lineHeight: 1.5,
+            padding: "12px 14px",
+            border: "1px solid var(--rule)",
+            borderRadius: 6,
+            background: "var(--paper)",
+            color: "var(--ink)",
+            resize: "vertical",
+            position: "relative",
+          }}
+        />
+        <div className="breakdown-actions" style={{ marginTop: 16, paddingTop: 12 }}>
+          <div style={{ flex: 1 }} />
+          <button className="rec-pull" onClick={handleSave} disabled={saving}
+                  style={{ alignSelf: "flex-end", marginLeft: 0 }}>
+            {saving ? "Saving…" : "Save context"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GoalsPage({ onSuggest, goals, onGoalsChange }) {
   // Local copy for optimistic edits; resyncs whenever the prop updates.
   const [local, setLocal] = React.useState(goals);
@@ -1088,6 +1154,8 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
 
   // The annual goal currently being broken down (modal target).
   const [breakdownAnnual, setBreakdownAnnual] = React.useState(null);
+  // The annual goal whose agent-context is being edited (modal target).
+  const [contextAnnual, setContextAnnual] = React.useState(null);
 
   const patchGoal = async (horizon, id, patch) => {
     setLocal(prev => ({
@@ -1199,17 +1267,6 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                   </div>
                 </div>
               </div>
-              {/* Context — strategy, constraints, what's been tried. Fed into
-                  the breakdown agent so its proposals fit this goal's actual
-                  situation instead of generic playbook answers. */}
-              <div className="goal-annual-context">
-                <div className="goal-annual-context-label">Context for the agent</div>
-                <EditableText
-                  value={g.context}
-                  placeholder="Strategy, constraints, what's already tried, available resources. The breakdown agent reads this on every run."
-                  multiline
-                  onCommit={(v) => patchGoal("annual", g.id, { context: v })} />
-              </div>
               <div className="goal-annual-foot">
                 <div style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
                   <span className="goal-pct mono">
@@ -1220,6 +1277,12 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                                   onCommit={(v) => patchGoal("annual", g.id, { target: v })} />
                   </span>
                 </div>
+                <button
+                  className={`goal-breakdown-btn ${g.context ? "has-data" : ""}`}
+                  title={g.context ? "Edit agent context" : "Add context for the agent (strategy, constraints, what's been tried)"}
+                  onClick={() => setContextAnnual(g)}>
+                  <Icon.notes />
+                </button>
                 <button
                   className="goal-breakdown-btn"
                   title="Break this goal into quarterly + monthly milestones with an LLM"
@@ -1239,6 +1302,17 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
           onCommitted={() => {
             setBreakdownAnnual(null);
             onGoalsChange?.();
+          }}
+        />
+      )}
+
+      {contextAnnual && (
+        <ContextModal
+          annual={contextAnnual}
+          onClose={() => setContextAnnual(null)}
+          onSave={async (newContext) => {
+            await patchGoal("annual", contextAnnual.id, { context: newContext });
+            setContextAnnual(null);
           }}
         />
       )}
