@@ -429,13 +429,24 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
   const openCount = tasks.filter(t => !doneSet.has(t.id)).length;
   const slotsLeft = Math.max(0, TODAY_CAP - openCount);
 
+  // Sort done items to the bottom while preserving relative order within each
+  // group. The underlying position field still drives ordering between peers;
+  // done-state just partitions the list visually so open work stays on top
+  // and finished items become a "ledger" beneath. handleDrop uses this same
+  // array so drop indices match what the user sees.
+  const displayTasks = useMemo(() => {
+    const open = tasks.filter(t => !doneSet.has(t.id));
+    const done = tasks.filter(t =>  doneSet.has(t.id));
+    return [...open, ...done];
+  }, [tasks, doneSet]);
+
   // Drag-to-reorder state — the id currently being dragged, and the id being
   // hovered (for the insertion-line indicator).
   const [draggingId, setDraggingId] = useState(null);
   const [hoverId, setHoverId]       = useState(null);
   const handleDrop = (targetId) => {
     if (!draggingId || draggingId === targetId) return;
-    const targetIdx = tasks.findIndex(t => t.id === targetId);
+    const targetIdx = displayTasks.findIndex(t => t.id === targetId);
     if (targetIdx === -1) return;
     onReorder?.(draggingId, targetIdx);
     setDraggingId(null);
@@ -488,7 +499,7 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
       </div>
 
       <div className="task-list">
-        {tasks.map(t => {
+        {displayTasks.map(t => {
           const done = doneSet.has(t.id);
           const isDragging = draggingId === t.id;
           const isHover    = hoverId === t.id && draggingId && draggingId !== t.id;
