@@ -403,7 +403,247 @@ function CalendarPage({ focusTask, onSchedule, scheduled }) {
   );
 }
 
-Object.assign(window, { InboxPage, CalendarPage });
+/* ─────────────────────────────────────────────────────────────
+   Tasks page — the planning surface.
+
+   Structure (top to bottom):
+     1. Brain dump — capture box + untriaged inflow with → Today / This week / Drop
+     2. This week — the active planning pool (themed, weight-ranked)
+     3. This month — the soonish backlog (compact)
+     4. Backlog — the holding pen (collapsible)
+
+   The Today page is the execution surface; this page is the planning
+   surface. Crossing between the two is a deliberate context switch.
+   ───────────────────────────────────────────────────────────── */
+function TasksPage({
+  inbox, triage, addInboxItem,
+  weekSlot,
+  thisMonthTasks, backlogTasks,
+  toggleDone, doneSet, onOpenDetail,
+}) {
+  const [draft, setDraft] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [showBacklog, setShowBacklog] = useState(false);
+
+  const visible = filter === "all"
+    ? inbox
+    : inbox.filter(it => it.source === filter);
+  const counts = Object.keys(SOURCES).reduce((a, k) => {
+    a[k] = inbox.filter(it => it.source === k).length;
+    return a;
+  }, {});
+
+  const submit = () => {
+    const v = draft.trim();
+    if (!v) return;
+    addInboxItem(v);
+    setDraft("");
+  };
+
+  return (
+    <main className="main" data-screen-label="Tasks">
+      <div className="topbar">
+        <div>
+          <div className="greeting-eyebrow">Planning surface</div>
+          <h1 className="greeting">
+            All the things.<br/>
+            <em>Triage, sort, defer.</em>
+          </h1>
+        </div>
+      </div>
+
+      {/* ─── Brain dump ─── */}
+      <section style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 0 }}>
+        <div className="section-head">
+          <div>
+            <div className="section-title">Brain dump</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+              Untriaged inflow. Decide → Today, This week, or Drop. No fourth option.
+            </div>
+          </div>
+          <div className="section-meta">
+            <b>{inbox.length}</b> waiting
+          </div>
+        </div>
+
+        <div className="capture-hero">
+          <Icon.plus style={{ color: "var(--muted)", flex: "0 0 auto" }} />
+          <input
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") submit(); }}
+            placeholder="What's in your head right now?"
+          />
+          <button className="capture-submit" onClick={submit}>
+            Capture <span className="kbd">⏎</span>
+          </button>
+        </div>
+
+        {inbox.length > 0 && (
+          <div className="filter-row">
+            <button
+              className={`filter-chip ${filter === "all" ? "active" : ""}`}
+              onClick={() => setFilter("all")}>
+              All <span className="mono">{inbox.length}</span>
+            </button>
+            {Object.entries(SOURCES).map(([id, s]) => (
+              counts[id] > 0 && (
+                <button
+                  key={id}
+                  className={`filter-chip ${filter === id ? "active" : ""}`}
+                  onClick={() => setFilter(id)}>
+                  <span className="source-dot" style={{ background: s.color }} />
+                  {s.label} <span className="mono">{counts[id]}</span>
+                </button>
+              )
+            ))}
+          </div>
+        )}
+
+        <div className="inbox-page-list">
+          {visible.length === 0 ? (
+            <div className="empty-state" style={{ padding: "28px 20px" }}>
+              <div className="empty-state-icon" />
+              <div className="empty-state-title">Brain dump is empty.</div>
+              <div className="empty-state-sub">Anything that pops into your head, drop it in the box above.</div>
+            </div>
+          ) : visible.map(it => (
+            <div key={it.id} className="inbox-page-row">
+              <span className="inbox-source" style={{ background: SOURCES[it.source]?.color || "var(--muted-2)", width: 18, height: 18, fontSize: 10 }}>
+                {SOURCES[it.source]?.glyph || "·"}
+              </span>
+              <div className="inbox-page-main">
+                <div className="inbox-page-title">{it.title}</div>
+                <div className="inbox-page-meta">
+                  from {SOURCES[it.source]?.label || it.source}
+                </div>
+              </div>
+              <div className="inbox-page-actions">
+                <button onClick={() => triage(it.id, "today")} className="action today">→ Today</button>
+                <button onClick={() => triage(it.id, "later")} className="action later">This week</button>
+                <button onClick={() => triage(it.id, "drop")}  className="action drop">Drop</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ─── This week (rendered by parent — uses OnDeck from app.jsx) ─── */}
+      <div style={{ marginTop: 28 }}>{weekSlot}</div>
+
+      {/* ─── This month (lighter, no theme groupings) ─── */}
+      <LaneListSection
+        title="This month"
+        sub="Soonish. Items here decay to Backlog after 30 days untouched."
+        tasks={thisMonthTasks}
+        doneSet={doneSet}
+        toggleDone={toggleDone}
+        onOpenDetail={onOpenDetail}
+        emptyText="Empty for now. Newly-synced tasks land here after the first triage decision."
+      />
+
+      {/* ─── Backlog (collapsed by default) ─── */}
+      <section style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 28 }}>
+        <div className="section-head">
+          <div>
+            <div className="section-title">Backlog</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+              The holding pen. No timeline. Won't surface in recommendations.
+            </div>
+          </div>
+          <div className="section-meta">
+            <button
+              className="ondeck-reenrich"
+              onClick={() => setShowBacklog(s => !s)}>
+              {showBacklog ? "Hide" : `Show ${backlogTasks.length}`}
+            </button>
+          </div>
+        </div>
+        {showBacklog && (
+          <LaneListSection
+            title=""
+            sub=""
+            tasks={backlogTasks}
+            doneSet={doneSet}
+            toggleDone={toggleDone}
+            onOpenDetail={onOpenDetail}
+            emptyText="Backlog is empty."
+            hideHeader
+          />
+        )}
+      </section>
+    </main>
+  );
+}
+
+// Compact list section — used for this_month and backlog. No theming, no
+// below-the-line foldout; just a clean grouped list ordered by weight.
+function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail, emptyText, hideHeader }) {
+  const sorted = useMemo(
+    () => [...tasks].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0)),
+    [tasks],
+  );
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: hideHeader ? 0 : 28 }}>
+      {!hideHeader && (
+        <div className="section-head">
+          <div>
+            <div className="section-title">{title}</div>
+            {sub && (
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                {sub}
+              </div>
+            )}
+          </div>
+          <div className="section-meta">
+            <b>{tasks.length}</b>
+          </div>
+        </div>
+      )}
+      {sorted.length === 0 ? (
+        <div className="empty-state" style={{ padding: "24px 20px" }}>
+          <div className="empty-state-icon" />
+          <div className="empty-state-sub">{emptyText}</div>
+        </div>
+      ) : (
+        <div className="task-list">
+          {sorted.map(t => (
+            <div
+              key={t.id}
+              className={`task-row no-drag ${doneSet.has(t.id) ? "done" : ""}`}
+              onClick={() => onOpenDetail?.(t.id)}>
+              <button
+                className="check check-btn"
+                onClick={(e) => { e.stopPropagation(); toggleDone(t.id); }}
+                aria-label={doneSet.has(t.id) ? "Mark undone" : "Mark done"}>
+                <Icon.check />
+              </button>
+              <div className="task-main">
+                <div className="task-title">{t.title}</div>
+                {t.theme && (
+                  <div className="task-note" style={{ fontStyle: "italic", color: "var(--muted)" }}>
+                    {t.theme}
+                  </div>
+                )}
+              </div>
+              <div className="task-right">
+                <SourceChip id={t.source} />
+                {t.due && <span className="estimate mono">{t.due}</span>}
+                {typeof t.weight === "number" && (
+                  <span className={`ondeck-weight ${t.weight >= 0.7 ? "high" : t.weight >= 0.3 ? "mid" : "low"}`}>
+                    {Math.round(t.weight * 100)}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+Object.assign(window, { InboxPage, CalendarPage, TasksPage });
 
 /* ─────────────────────────────────────────────────────────────
    Goals page
@@ -1748,12 +1988,13 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
 
   // Now⊂Today: show the "Now" button only when the task is currently in Now
   // (so we have an active-state indicator) or in Today (where it's a valid
-  // promotion target). Hide for week/later — the server would reject anyway.
+  // promotion target). Hide for further-out lanes — the server would reject.
   const LANES = [
     ...(task.lane === "now" || task.lane === "today" ? [{ id: "now", label: "Now" }] : []),
-    { id: "today", label: "Today" },
-    { id: "week",  label: "This week" },
-    { id: "later", label: "Later" },
+    { id: "today",      label: "Today" },
+    { id: "this_week",  label: "This week" },
+    { id: "this_month", label: "This month" },
+    { id: "backlog",    label: "Backlog" },
   ];
 
   return (
@@ -2276,7 +2517,7 @@ const API_ENDPOINTS = [
     description: "Create a task directly. Honors the 3-cap when lane is \"today\".",
     params: [
       { name: "title",    type: "string",  required: true,  notes: "Task title. Trimmed." },
-      { name: "lane",     type: "string",  required: false, notes: 'Defaults to "later". One of the lane enum.' },
+      { name: "lane",     type: "string",  required: false, notes: 'Defaults to "this_month". One of the lane enum.' },
       { name: "tag",      type: "string",  required: false, notes: "One of the tag enum, or omit for none." },
       { name: "project",  type: "string",  required: false, notes: "Free-form project label, shown as a chip." },
       { name: "note",     type: "string",  required: false, notes: "Optional secondary line shown beneath the title." },
@@ -2284,7 +2525,7 @@ const API_ENDPOINTS = [
       { name: "due",      type: "string",  required: false, notes: 'Relative ("today"/"tomorrow"/"fri"/"this week") or ISO date.' },
       { name: "source",   type: "string",  required: false, notes: 'Defaults to "agent".' },
     ],
-    response: '{ "id": "t-…", "source": "agent", "title": "...", "lane": "later" }',
+    response: '{ "id": "t-…", "source": "agent", "title": "...", "lane": "this_month" }',
     body: '{"title":"Draft the retention narrative","lane":"today","tag":"deep","estimate":25}',
   },
   {
@@ -2301,7 +2542,7 @@ const API_ENDPOINTS = [
 ];
 
 const API_ENUMS = [
-  { label: "lane",   values: ["now", "today", "week", "later"] },
+  { label: "lane",   values: ["now", "today", "this_week", "this_month", "backlog"] },
   { label: "source", values: ["clickup", "workflowy", "linear", "things", "notion", "email", "gcal", "self", "agent"] },
   { label: "tag",    values: ["deep", "shallow", "admin", "comms", "personal", "errand"] },
   { label: "mood",   values: ["calm", "focused", "scattered", "drained", "buzzy", "low"] },

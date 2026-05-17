@@ -68,12 +68,12 @@ inboxApi.post("/", async (c) => {
   return c.json(toWire({ id, source, title }), 201);
 });
 
-// Inbox triage "later" routes to the Week lane — the user is acknowledging
-// the item for the current week's plan, just not committing it to today.
+// Inbox triage "later" routes to This week — the user is acknowledging the
+// item for the current week's plan, just not committing it to today.
 // (Dropping triage rows entirely flow through a separate code path.)
 const TRIAGE_TO_LANE: Record<string, string> = {
   today: "today",
-  later: "week",
+  later: "this_week",
 };
 
 const TODAY_CAP = 3;

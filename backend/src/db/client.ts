@@ -24,6 +24,15 @@ db.exec(`
   UPDATE tasks SET lane = 'later' WHERE lane = 'someday';
 `);
 
+// Second-phase rename: from the time-commitment ladder (week/later) to the
+// explicit-horizon ladder (this_week / this_month / backlog). Existing `later`
+// rows all migrate into `this_month` — the lane-decay job will move stale
+// items down to `backlog` based on `updated_at`. Idempotent.
+db.exec(`
+  UPDATE tasks SET lane = 'this_week'  WHERE lane = 'week';
+  UPDATE tasks SET lane = 'this_month' WHERE lane = 'later';
+`);
+
 // Additive ALTER for the `date` column on calendar_events (multi-day view).
 // Existing rows backfill to today's local date as a best effort.
 const calCols = db.prepare("PRAGMA table_info(calendar_events)").all() as { name: string }[];

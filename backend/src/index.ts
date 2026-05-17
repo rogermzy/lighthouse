@@ -32,6 +32,7 @@ import { isAgentConfigured } from "./agent/suggest.js";
 import { startEnrichmentLoop, isEnrichmentConfigured } from "./agent/enrich.js";
 import { authRouter, isGoogleOAuthConfigured, hasGoogleTokens } from "./auth/oauth.js";
 import { startSync } from "./sync/runner.js";
+import { startDecayLoop } from "./sync/decay.js";
 import { gcalConnector } from "./connectors/gcal.js";
 import { gmailConnector } from "./connectors/gmail.js";
 import { gtasksConnector } from "./connectors/gtasks.js";
@@ -133,6 +134,7 @@ serve(
       // ticks free.
       console.log(`[lighthouse] enrichment: ${isEnrichmentConfigured() ? "ready" : "disabled (no key)"}`);
       startEnrichmentLoop();
+      startDecayLoop();
     });
   }
 );

@@ -84,7 +84,7 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
         </div>
       </div>
 
-      {/* Tasks — primary view. Three slot squares fill based on today's count. */}
+      {/* Today — the execution surface. Three slot squares fill based on count. */}
       <div className="nav-section tasks-section">
         <button
           className={`nav-tasks ${activeView === "today" ? "active" : ""}`}
@@ -93,12 +93,12 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
           <div className="nav-tasks-main">
             <div className="nav-tasks-eyebrow">
               <span className="nav-tasks-bullet" />
-              TODAY'S PLAN
+              EXECUTION SURFACE
             </div>
-            <div className="nav-tasks-title">Tasks</div>
+            <div className="nav-tasks-title">Today</div>
             <div className="nav-tasks-sub">
               {counts.now > 0 ? `${counts.now} now · ` : ""}
-              {counts.today} today · {counts.week} this week
+              {counts.today} committed
             </div>
           </div>
           <div className="nav-tasks-slots">
@@ -112,21 +112,24 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
         </button>
       </div>
 
-      {/* Inbox gets its own section — it's the catch-all for the ADHD brain */}
+      {/* Tasks — the planning surface. Brain dump + this_week / this_month / backlog. */}
       <div className="nav-section inbox-section">
         <button
-          className={`nav-inbox ${activeView === "inbox" ? "active" : ""}`}
-          onClick={() => setView("inbox")}>
+          className={`nav-inbox ${activeView === "tasks" ? "active" : ""}`}
+          onClick={() => setView("tasks")}>
           <div className="nav-inbox-halftone" />
           <div className="nav-inbox-main">
             <div className="nav-inbox-eyebrow">
               <span className="nav-inbox-dot" />
-              CATCH-ALL
+              PLANNING SURFACE
             </div>
-            <div className="nav-inbox-title">Brain dump</div>
-            <div className="nav-inbox-sub">{counts.inbox} waiting to sort</div>
+            <div className="nav-inbox-title">Tasks</div>
+            <div className="nav-inbox-sub">
+              {counts.inbox > 0 ? `${counts.inbox} brain-dump · ` : ""}
+              {counts.this_week} this week
+            </div>
           </div>
-          <div className="nav-inbox-count">{counts.inbox}</div>
+          <div className="nav-inbox-count">{counts.inbox + counts.this_week}</div>
         </button>
       </div>
 
@@ -1454,7 +1457,7 @@ function App() {
       const demoteRes = await fetch(`/api/tasks/${encodeURIComponent(taskIdToDemote)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lane: "week" }),
+        body: JSON.stringify({ lane: "this_week" }),
       });
       if (!demoteRes.ok) throw new Error(`demote ${demoteRes.status}`);
 
@@ -1477,26 +1480,31 @@ function App() {
     }
   };
 
-  // Lane taxonomy is the time-commitment ladder: now → today → week → later.
+  // Lane taxonomy is the explicit time-horizon ladder:
+  //   now → today → this_week → this_month → backlog
   // `now` is singleton (current focus block), `today` is hard-capped at 3,
-  // `week` is the working set pulled into this week's plan, `later` is the
-  // uncommitted backlog where newly-synced tasks land.
+  // `this_week` is the planning set for the next 7 days, `this_month` is the
+  // 1–4 week pool, `backlog` is the uncommitted holding pen. A background
+  // decay job demotes stale items down the ladder so nothing rots in place.
   const tasksByLane = useMemo(() => {
     const f = (lane) => tasks.filter(x => x.lane === lane);
     return {
-      now:    f("now")[0],
-      today:  f("today"),
-      week:   f("week"),
-      later:  f("later"),
+      now:        f("now")[0],
+      today:      f("today"),
+      this_week:  f("this_week"),
+      this_month: f("this_month"),
+      backlog:    f("backlog"),
     };
   }, [tasks]);
 
   const counts = {
-    now:   tasksByLane.now && !doneSet.has(tasksByLane.now.id) ? 1 : 0,
-    today: tasksByLane.today.filter(t => !doneSet.has(t.id)).length,
-    week:  tasksByLane.week.filter(t => !doneSet.has(t.id)).length,
-    inbox: inbox.length,
-    meetings: CALENDAR.events.length,
+    now:        tasksByLane.now && !doneSet.has(tasksByLane.now.id) ? 1 : 0,
+    today:      tasksByLane.today.filter(t => !doneSet.has(t.id)).length,
+    this_week:  tasksByLane.this_week.filter(t => !doneSet.has(t.id)).length,
+    this_month: tasksByLane.this_month.filter(t => !doneSet.has(t.id)).length,
+    backlog:    tasksByLane.backlog.filter(t => !doneSet.has(t.id)).length,
+    inbox:      inbox.length,
+    meetings:   CALENDAR.events.length,
   };
 
   const addInboxItem = async (title) => {
@@ -1517,7 +1525,7 @@ function App() {
   return (
     <div className={`app ${focusMode ? "focus-mode" : ""}`} data-screen-label={
       activeView === "calendar" ? "Calendar" :
-      activeView === "inbox"    ? "Inbox" :
+      activeView === "tasks"    ? "Tasks" :
       activeView === "goals"    ? "Goals" :
       activeView === "journal"  ? "Journal" :
       activeView === "settings" ? "Settings" :
@@ -1538,11 +1546,28 @@ function App() {
           onSchedule={() => setScheduled(s => !s)}
           scheduled={scheduled}
         />
-      ) : activeView === "inbox" ? (
-        <InboxPage
+      ) : activeView === "tasks" ? (
+        <TasksPage
           inbox={inbox}
           triage={triageInbox}
-          addItem={addInboxItem}
+          addInboxItem={addInboxItem}
+          weekSlot={
+            <OnDeck
+              tasks={tasksByLane.this_week}
+              toggleDone={toggleDone}
+              doneSet={doneSet}
+              onOpenDetail={openDetail}
+              onReenrich={async () => {
+                await fetch("/api/tasks/reenrich", { method: "POST" });
+                await refreshTasks();
+              }}
+            />
+          }
+          thisMonthTasks={tasksByLane.this_month}
+          backlogTasks={tasksByLane.backlog}
+          toggleDone={toggleDone}
+          doneSet={doneSet}
+          onOpenDetail={openDetail}
         />
       ) : activeView === "goals" ? (
         <GoalsPage
@@ -1621,12 +1646,12 @@ function App() {
             tasks={tasksByLane.today}
             toggleDone={toggleDone}
             doneSet={doneSet}
-            weekTasks={tasksByLane.week.filter(t => !doneSet.has(t.id))}
+            weekTasks={tasksByLane.this_week.filter(t => !doneSet.has(t.id))}
             onOpenDetail={openDetail}
             nowTaskId={tasksByLane.now?.id}
             onStartNow={(id) => patchLane(id, "now")}
             onPromote={(id) => patchLane(id, "today")}
-            onDefer={(id) => patchLane(id, "later")}
+            onDefer={(id) => patchLane(id, "this_month")}
             onReorder={async (id, index) => {
               // Optimistic local reorder so the row jumps immediately; the
               // PATCH call writes through to the server and refreshTasks()
@@ -1642,16 +1667,6 @@ function App() {
                 return [...others, ...without.map((t, i) => ({ ...t, position: i + 1 }))];
               });
               await patchLane(id, "today", { index });
-            }}
-          />
-          <OnDeck
-            tasks={tasksByLane.week}
-            toggleDone={toggleDone}
-            doneSet={doneSet}
-            onOpenDetail={openDetail}
-            onReenrich={async () => {
-              await fetch("/api/tasks/reenrich", { method: "POST" });
-              await refreshTasks();
             }}
           />
         </main>

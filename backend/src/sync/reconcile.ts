@@ -31,13 +31,14 @@ const markSyncError = db.prepare(`
 // Roger-owned fields (lane, big_rock, done_at, tag, position) are NEVER
 // overwritten by a pull. Source-owned fields (title, note, project,
 // estimate_min, due, url) are refreshed on every tick. New rows land at the
-// bottom of the Later lane (max(position) + 1).
+// bottom of This month (max(position) + 1) — the user explicitly triages
+// from there into This week / Today, or lets decay push them to Backlog.
 const upsertTaskFromSource = db.prepare(`
   INSERT INTO tasks
     (id, source, external_id, title, note, project, tag, estimate_min, due, url, lane, big_rock, position, done_at, created_at, updated_at)
   VALUES
-    (:id, :source, :external_id, :title, :note, :project, NULL, :estimate_min, :due, :url, 'later', 0,
-     (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE lane = 'later'),
+    (:id, :source, :external_id, :title, :note, :project, NULL, :estimate_min, :due, :url, 'this_month', 0,
+     (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE lane = 'this_month'),
      NULL, :now, :now)
   ON CONFLICT(source, external_id) DO UPDATE SET
     title        = excluded.title,

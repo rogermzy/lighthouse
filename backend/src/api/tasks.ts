@@ -163,7 +163,7 @@ const FIELD_SQL: Record<string, string> = {
   big_rock: "big_rock = :big_rock",
 };
 
-const VALID_LANES = new Set(["now", "today", "week", "later"]);
+const VALID_LANES = new Set(["now", "today", "this_week", "this_month", "backlog"]);
 
 tasksApi.patch("/:id", async (c) => {
   const id = c.req.param("id");

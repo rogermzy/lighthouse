@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   tag           TEXT,
   estimate_min  INTEGER,
   due           TEXT,
-  lane          TEXT NOT NULL DEFAULT 'later',
+  lane          TEXT NOT NULL DEFAULT 'this_month',
   big_rock      INTEGER NOT NULL DEFAULT 0,
   position      REAL    NOT NULL DEFAULT 0,
   url           TEXT,

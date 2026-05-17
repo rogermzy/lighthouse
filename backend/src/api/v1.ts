@@ -19,7 +19,7 @@ v1Api.use("*", async (c, next) => {
 const VALID_SOURCES = new Set([
   "clickup", "workflowy", "linear", "things", "notion", "email", "gcal", "gtasks", "self", "agent",
 ]);
-const VALID_LANES = new Set(["now", "today", "week", "later"]);
+const VALID_LANES = new Set(["now", "today", "this_week", "this_month", "backlog"]);
 const VALID_MOODS = new Set(["calm", "focused", "scattered", "drained", "buzzy", "low"]);
 const VALID_TAGS  = new Set(["deep", "shallow", "admin", "comms", "personal", "errand"]);
 
@@ -96,7 +96,7 @@ v1Api.post("/tasks", async (c) => {
     return c.json({ error: `title too long (max ${TITLE_MAX} chars)`, length: title.length }, 400);
   }
 
-  const lane = typeof body.lane === "string" ? body.lane : "later";
+  const lane = typeof body.lane === "string" ? body.lane : "this_month";
   if (!VALID_LANES.has(lane)) return c.json({ error: `invalid lane: ${lane}` }, 400);
 
   const source = typeof body.source === "string" ? body.source : "agent";
@@ -168,7 +168,7 @@ v1Api.post("/tasks", async (c) => {
     return c.json(
       {
         error: "today_full",
-        message: `Today already has ${TODAY_CAP} tasks. Move one to This week first, or pick lane="week" / "later".`,
+        message: `Today already has ${TODAY_CAP} tasks. Move one to This week first, or pick lane="this_week" / "this_month".`,
         todayCount: capFull,
       },
       409
