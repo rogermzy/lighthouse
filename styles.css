@@ -4700,8 +4700,151 @@ textarea.editable-input { line-height: 1.5; }
   background-image: radial-gradient(circle at center, #d7cdb8 1.1px, transparent 1.3px);
 }
 
-/* responsive guard — collapse rail on narrow */
+/* ═══════════════════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS — coherent tier system
+   ─────────────────────────────────────────────────────────────────────
+   Five tiers, top-down from desktop wide to phone portrait. Earlier
+   piecemeal queries (1180, 980, 800, 900, 1280) are superseded here.
+   No JS state changes — sidebar transforms via CSS only.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Tier 2 · MacBook 13/14" (1280px and below) ──────────────────────── */
 @media (max-width: 1280px) {
   .app { grid-template-columns: 220px 1fr 280px; }
   .main { padding: 20px 22px 80px; }
+  .rail { padding: 20px 16px 30px; }
+  .greeting { font-size: 28px; }
+  .goal-annual-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Tier 3 · iPad landscape / small laptop (1100px and below) ──────── */
+@media (max-width: 1100px) {
+  /* Drop the rail — calendar lives in its own page, week glance is
+     non-essential. Frees ~280px for main content. */
+  .app { grid-template-columns: 220px 1fr; }
+  .rail { display: none; }
+  .cal-grid { /* calendar 4-day view → 2-day */
+    grid-template-columns: 60px repeat(2, 1fr) !important;
+  }
+  .cal-grid .cal-day-col:nth-child(n+4) { display: none; }
+  .cal-day-header:nth-child(n+4) { display: none; }
+}
+
+/* ── Tier 4 · iPad portrait / large phone (900px and below) ─────────── */
+@media (max-width: 900px) {
+  /* Collapse sidebar to icon-only — hide labels and rich subtexts so
+     the nav buttons read as a vertical icon strip. */
+  .app { grid-template-columns: 64px 1fr; }
+  .sidebar { padding: 14px 6px; }
+  .brand-name, .brand-sub,
+  .nav-tasks-eyebrow, .nav-tasks-title, .nav-tasks-sub, .nav-tasks-slots,
+  .nav-inbox-eyebrow, .nav-inbox-title, .nav-inbox-sub, .nav-inbox-count,
+  .nav-calendar-eyebrow, .nav-calendar-title, .nav-calendar-sub, .nav-calendar-stat,
+  .nav-goals-eyebrow, .nav-goals-title, .nav-goals-sub, .nav-goals-rings,
+  .nav-journal-eyebrow, .nav-journal-title, .nav-journal-sub, .nav-journal-strip,
+  .nav-item .nav-label,
+  .sidebar h4, .sidebar .source-row, .sidebar .source-name,
+  .sidebar-footer > div:last-child {
+    display: none;
+  }
+  /* Re-center nav buttons + reduce padding to fit the slimmer column. */
+  .nav-tasks, .nav-inbox, .nav-calendar, .nav-goals, .nav-journal {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 12px 6px;
+    min-height: 44px;
+  }
+  .nav-tasks-halftone, .nav-inbox-halftone,
+  .nav-calendar-halftone, .nav-goals-halftone, .nav-journal-halftone {
+    display: none;
+  }
+  .nav-item { justify-content: center; padding: 8px; }
+  .sidebar-footer { justify-content: center; }
+  .sidebar-footer .avatar { margin: 0; }
+  .greeting { font-size: 24px; }
+  .main { padding: 16px 18px 80px; }
+  .goal-annual-grid { grid-template-columns: 1fr; }
+  /* Calendar back to 1-day strip when very narrow. */
+  .cal-grid {
+    grid-template-columns: 50px 1fr !important;
+  }
+  .cal-grid .cal-day-col:nth-child(n+3) { display: none; }
+  .cal-day-header:nth-child(n+3) { display: none; }
+}
+
+/* ── Tier 5 · iPhone (640px and below) ──────────────────────────────── */
+@media (max-width: 640px) {
+  /* Sidebar moves to a horizontal scroll-strip at the top so the main
+     content fills the full viewport width. No hamburger / drawer state
+     needed — the nav is always reachable by scrolling the top strip. */
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .sidebar {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 12px;
+    gap: 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+  .sidebar > * {
+    flex-shrink: 0;
+  }
+  .brand { display: none; }
+  /* Each nav section becomes a button-sized chip. */
+  .nav-section { margin: 0; }
+  .nav-tasks, .nav-inbox, .nav-calendar, .nav-goals, .nav-journal {
+    padding: 8px 12px;
+    min-height: 36px;
+  }
+  .sidebar-footer { display: none; }
+  .main { padding: 14px 14px 80px; }
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .greeting {
+    font-size: 22px;
+    line-height: 1.15;
+  }
+  .greeting-eyebrow { font-size: 10px; }
+  /* Three-up section heads (title + meta) wrap on mobile. */
+  .section-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  /* Task rows: collapse some right-side chrome at narrow widths. */
+  .task-row { padding: 10px 10px 10px 8px; gap: 8px; }
+  .ondeck-row {
+    grid-template-columns: 20px 1fr repeat(3, auto);
+    gap: 8px;
+    padding: 8px 4px;
+  }
+  /* Drop the tag chip + the rec-meta to fit narrower rows. */
+  .ondeck-row .tag-chip,
+  .rec-meta .rec-reason { display: none; }
+}
+
+/* ── Tier 6 · small phones (480px and below) ────────────────────────── */
+@media (max-width: 480px) {
+  .greeting { font-size: 20px; }
+  .main { padding: 12px 12px 80px; }
+  /* Calendar: hide hour labels on the tightest screens; the event blocks
+     still anchor themselves at the right vertical position. */
+  .cal-grid { grid-template-columns: 36px 1fr !important; }
+  /* Sidebar nav chips become icon-only on tiniest screens. */
+  .nav-tasks-title, .nav-inbox-title, .nav-calendar-title,
+  .nav-goals-title, .nav-journal-title { font-size: 0; }
+  .nav-tasks-title::first-letter,
+  .nav-inbox-title::first-letter,
+  .nav-calendar-title::first-letter,
+  .nav-goals-title::first-letter,
+  .nav-journal-title::first-letter { font-size: 14px; }
 }
