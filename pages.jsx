@@ -419,7 +419,10 @@ function CalendarPage({ focusTask, onSchedule, scheduled }) {
 // separate Babel-standalone script and can't import. Keep them in sync.
 function quickLaneActionsForRow(lane) {
   switch (lane) {
-    case "this_week":  return [{ label: "→ Today",     target: "today" }];
+    case "this_week":  return [
+      { label: "→ Today",      target: "today" },
+      { label: "↓ This month", target: "this_month" },
+    ];
     case "this_month": return [
       { label: "↑ This week", target: "this_week" },
       { label: "↓ Backlog",   target: "backlog" },

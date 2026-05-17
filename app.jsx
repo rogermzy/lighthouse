@@ -669,7 +669,10 @@ const PINNED_GROUP = "📌 Pinned · next up";
 // moves (e.g. backlog → today) still go through the detail modal.
 function quickLaneActions(lane) {
   switch (lane) {
-    case "this_week":  return [{ label: "→ Today",     target: "today" }];
+    case "this_week":  return [
+      { label: "→ Today",      target: "today" },
+      { label: "↓ This month", target: "this_month" },
+    ];
     case "this_month": return [
       { label: "↑ This week", target: "this_week" },
       { label: "↓ Backlog",   target: "backlog" },
