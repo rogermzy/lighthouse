@@ -1968,7 +1968,7 @@ function SyncStatusLine({ sync, msg, label }) {
    full description, source meta, agent reasoning, and gives
    one-click access to common state changes.
    ───────────────────────────────────────────────────────────── */
-function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLane }) {
+function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLane, onTogglePin }) {
   if (!open || !task) return null;
   const source = SOURCES[task.source];
   const tag = TAGS[task.tag];
@@ -2090,6 +2090,17 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
               </button>
             ))}
           </div>
+          {/* Pin toggle — only meaningful for the planning lanes (this_week,
+              this_month, backlog). Hidden on now/today because those are
+              already committed; pin is for "queue this up next". */}
+          {onTogglePin && task.lane !== "now" && task.lane !== "today" && (
+            <button
+              className={`rec-defer ${task.pinned ? "active" : ""}`}
+              title={task.pinned ? "Unpin" : "Pin — promote next when Today opens up"}
+              onClick={() => onTogglePin(task.id, !task.pinned)}>
+              {task.pinned ? "📌 Pinned" : "📌 Pin for next"}
+            </button>
+          )}
           <button
             className={`modal-primary ${isDone ? "secondary" : ""}`}
             onClick={() => onToggleDone?.(task.id)}>

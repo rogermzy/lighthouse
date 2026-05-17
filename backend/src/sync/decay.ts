@@ -19,9 +19,13 @@ function ageCutoffIso(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+// Decay also clears `pinned` — pinning means "I want this next THIS week".
+// If the week passed and we still haven't pulled it, the pin's intent has
+// expired. A fresh pin would be a new act of attention.
 const decayThisWeek = db.prepare(`
   UPDATE tasks
      SET lane = 'this_month',
+         pinned = 0,
          updated_at = updated_at
    WHERE lane = 'this_week'
      AND done_at IS NULL

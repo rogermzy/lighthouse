@@ -16,6 +16,7 @@ type TaskRow = {
   due: string | null;
   lane: string;
   big_rock: number;
+  pinned: number;
   position: number;
   url: string | null;
   done_at: string | null;
@@ -45,13 +46,18 @@ const selectCurrentLane = db.prepare("SELECT lane, done_at, position FROM tasks 
 // `position` within each lane so drag-reorder persists across reloads.
 const selectVisible = db.prepare(`
   SELECT t.id, t.source, t.external_id, t.title, t.note, t.project, t.tag,
-         t.estimate_min, t.due, t.lane, t.big_rock, t.position, t.url, t.done_at,
+         t.estimate_min, t.due, t.lane, t.big_rock, t.pinned, t.position, t.url, t.done_at,
          e.theme, e.primary_goal_id, e.weight, e.reasoning
   FROM tasks t
   LEFT JOIN task_enrichment e ON e.task_id = t.id
   WHERE t.done_at IS NULL OR t.done_at >= :since
   ORDER BY t.lane, t.position
 `);
+
+const PIN_CAP = 5;
+const countPinned = db.prepare(
+  "SELECT COUNT(*) AS n FROM tasks WHERE pinned = 1 AND done_at IS NULL"
+);
 
 // Append helpers for re-positioning. `maxPosInLane` is used when a task moves
 // into a new lane without an explicit index — it just lands at the end.
@@ -128,6 +134,7 @@ function rowToWire(r: TaskRow) {
     estimate: r.estimate_min ?? undefined,
     due: r.due ?? undefined,
     bigRock: r.big_rock === 1 ? true : undefined,
+    pinned:  r.pinned === 1 ? true : undefined,
     position: r.position,
     url: r.url ?? undefined,
     doneAt: r.done_at ?? undefined,
@@ -161,6 +168,7 @@ tasksApi.post("/reenrich", async (c) => {
 const FIELD_SQL: Record<string, string> = {
   lane: "lane = :lane",
   big_rock: "big_rock = :big_rock",
+  pinned: "pinned = :pinned",
 };
 
 const VALID_LANES = new Set(["now", "today", "this_week", "this_month", "backlog"]);
@@ -179,6 +187,7 @@ tasksApi.patch("/:id", async (c) => {
 
   let notFound = false;
   let capFull: number | null = null;
+  let pinCapFull: number | null = null;
   let nowGateError: string | null = null;
   let shouldLogCompletion = false;
   // Captures the done-state transition (true=just-done, false=just-reopened,
@@ -231,6 +240,23 @@ tasksApi.patch("/:id", async (c) => {
     if (typeof body.bigRock === "boolean") {
       setters.push(FIELD_SQL.big_rock);
       params.big_rock = body.bigRock ? 1 : 0;
+    }
+    if (typeof body.pinned === "boolean") {
+      // 5-pin cap: a sixth pin is rejected so "pinned" keeps signal value.
+      // Existing rows getting unpinned are always allowed.
+      if (body.pinned === true) {
+        const { n } = countPinned.get() as { n: number };
+        // Permit re-pinning a task that's already pinned (no-op net change).
+        const wasPinned = (db.prepare("SELECT pinned FROM tasks WHERE id = :id").get({ id }) as { pinned: number } | undefined)?.pinned === 1;
+        if (!wasPinned && n >= PIN_CAP) {
+          // Bubble up via a closure flag — we're inside runTx and need to
+          // exit cleanly before responding. Mirroring the capFull pattern.
+          pinCapFull = n;
+          return;
+        }
+      }
+      setters.push(FIELD_SQL.pinned);
+      params.pinned = body.pinned ? 1 : 0;
     }
 
     const targetLane = newLane ?? prior.lane;
@@ -324,6 +350,12 @@ tasksApi.patch("/:id", async (c) => {
   if (capFull !== null) {
     return c.json(
       { error: "today_full", message: `Today already has ${TODAY_CAP} tasks. Move one to This week first.`, todayCount: capFull },
+      409
+    );
+  }
+  if (pinCapFull !== null) {
+    return c.json(
+      { error: "pin_cap_full", message: `${PIN_CAP} pinned already — unpin one first.`, pinCount: pinCapFull },
       409
     );
   }

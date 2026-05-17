@@ -67,6 +67,12 @@ const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string 
 if (!taskCols.some((c) => c.name === "url")) {
   db.exec("ALTER TABLE tasks ADD COLUMN url TEXT");
 }
+if (!taskCols.some((c) => c.name === "pinned")) {
+  // Pinned tasks (in this_week) surface as the top recommendation and sort
+  // first in the list. Capped at 5 (enforced at the API layer). Auto-clears
+  // when decay demotes a task out of this_week.
+  db.exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+}
 if (!taskCols.some((c) => c.name === "position")) {
   db.exec("ALTER TABLE tasks ADD COLUMN position REAL NOT NULL DEFAULT 0");
   // Backfill: number every existing task within its lane in id order so the

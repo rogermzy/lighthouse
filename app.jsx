@@ -393,15 +393,19 @@ function dueRank(due) {
 }
 
 // Ranking for the recommendation slots. Tiebreaker chain:
+//   0. pinned desc — explicit user "promote this next" beats everything
 //   1. weight desc (with epsilon — see REC_WEIGHT_EPSILON)
 //   2. due-soon asc (dated tasks beat undated; today > tomorrow > rest)
 //   3. user's Week-lane position asc — stable across refreshes and
 //      gives the user implicit control via drag-to-reorder.
 // Then theme spread: first pass picks ≤1 per theme so the three slots
 // aren't all one cluster (e.g. all email triage). If strict spread would
-// leave slots empty, a second pass allows repeats.
+// leave slots empty, a second pass allows repeats. Pinned items are
+// exempt from theme spread — explicit intent wins over diversity.
 function rankRecommendations(eligible, slotsLeft) {
   const ranked = [...eligible].sort((a, b) => {
+    const dp = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+    if (dp !== 0) return dp;
     const dw = (b.weight ?? 0) - (a.weight ?? 0);
     if (Math.abs(dw) > REC_WEIGHT_EPSILON) return dw;
     const dd = dueRank(a.due) - dueRank(b.due);
@@ -413,6 +417,13 @@ function rankRecommendations(eligible, slotsLeft) {
   const usedThemes = new Set();
   for (const t of ranked) {
     if (picks.length >= slotsLeft) break;
+    // Pinned items always fill a slot, regardless of theme overlap — the
+    // user's explicit "promote this next" signal overrides theme spread.
+    if (t.pinned) {
+      picks.push(t);
+      usedThemes.add(t.theme || "_untagged");
+      continue;
+    }
     const theme = t.theme || "_untagged";
     if (usedThemes.has(theme)) continue;
     picks.push(t);
@@ -486,7 +497,7 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
 
   return (
     <>
-    <section className="today-section" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <section className="today-section" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="section-head">
         <div>
           <div className="section-title">Today's three</div>
@@ -565,7 +576,7 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
     </section>
 
     {slotsLeft > 0 && (
-      <section className="rec-section" style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+      <section className="rec-section" style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 28 }}>
         <div className="section-head">
           <div>
             <div className="section-title">Suggested next</div>
@@ -585,12 +596,23 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
             {recommendations.map(t => (
               <div
                 key={`rec-${t.id}`}
-                className="task-row rec-row"
+                className={`task-row rec-row ${t.pinned ? "rec-pinned" : ""}`}
                 onClick={() => onOpenDetail?.(t.id)}
                 title={t.reasoning || "Recommended from this week — click for details"}>
-                <span className="rec-rail" aria-hidden>★</span>
+                <span className="rec-rail" aria-hidden>{t.pinned ? "📌" : "★"}</span>
                 <div className="task-main">
-                  <div className="task-title">{t.title}</div>
+                  <div className="task-title">
+                    {t.title}
+                    {t.pinned && (
+                      <span style={{
+                        marginLeft: 8, fontSize: 9, fontWeight: 700,
+                        letterSpacing: "0.1em", color: "var(--accent)",
+                        textTransform: "uppercase",
+                      }}>
+                        Pinned
+                      </span>
+                    )}
+                  </div>
                   <div className="task-note rec-meta">
                     <span className="rec-theme">{t.theme || "This week"}</span>
                     {t.reasoning && <span className="rec-reason"> · {t.reasoning}</span>}
@@ -639,20 +661,26 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
 const UNSORTED_THEME = "Awaiting triage";
 const BELOW_LINE = 0.3;
 
-function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail }) {
+const PINNED_GROUP = "📌 Pinned · next up";
+
+function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onTogglePin }) {
   const [reenriching, setReenriching] = useState(false);
   const [showBelow, setShowBelow] = useState(() => new Set());
   const dueClass = (d) => (d === "tomorrow" || d === "fri") ? "warn" : "";
 
   const groups = useMemo(() => {
-    // Bucket by theme. Tasks the agent hasn't seen yet land in "Awaiting triage".
+    // Pull pinned items into a dedicated group at the very top so the user's
+    // explicit "promote this next" picks are easy to scan. They're removed
+    // from their original theme groups to avoid duplication.
+    const pinned = tasks.filter((t) => t.pinned);
+    const rest   = tasks.filter((t) => !t.pinned);
+
     const buckets = new Map();
-    for (const t of tasks) {
+    for (const t of rest) {
       const theme = t.theme || UNSORTED_THEME;
       if (!buckets.has(theme)) buckets.set(theme, []);
       buckets.get(theme).push(t);
     }
-    // Sort tasks within each theme by weight desc (undefined → 0).
     for (const arr of buckets.values()) {
       arr.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
     }
@@ -665,6 +693,11 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail }) {
       const bMax = Math.max(...b[1].map((t) => t.weight ?? 0));
       return bMax - aMax;
     });
+
+    if (pinned.length > 0) {
+      pinned.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+      return [[PINNED_GROUP, pinned], ...sorted];
+    }
     return sorted;
   }, [tasks]);
 
@@ -709,14 +742,22 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail }) {
       </div>
 
       {groups.map(([theme, themeTasks]) => {
-        const above = themeTasks.filter((t) => (t.weight ?? 0) >= BELOW_LINE);
-        const below = themeTasks.filter((t) => (t.weight ?? 0) < BELOW_LINE);
+        const isPinnedGroup = theme === PINNED_GROUP;
+        // Pinned group skips the below-the-line foldout — pinned items are
+        // already an explicit signal; hiding them under "below the line"
+        // would defeat the whole point. Show them all in order.
+        const above = isPinnedGroup
+          ? themeTasks
+          : themeTasks.filter((t) => (t.weight ?? 0) >= BELOW_LINE);
+        const below = isPinnedGroup
+          ? []
+          : themeTasks.filter((t) => (t.weight ?? 0) < BELOW_LINE);
         const open = showBelow.has(theme);
         const isUnsorted = theme === UNSORTED_THEME;
         const visible = isUnsorted ? themeTasks : above;
 
         return (
-          <div key={theme} className="ondeck-theme">
+          <div key={theme} className={`ondeck-theme ${isPinnedGroup ? "pinned-group" : ""}`}>
             <div className="ondeck-theme-head">
               <span className="ondeck-theme-name">{theme}</span>
               <span className="ondeck-theme-meta">{themeTasks.length}</span>
@@ -730,6 +771,7 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail }) {
                   toggleDone={toggleDone}
                   dueClass={dueClass}
                   onOpenDetail={onOpenDetail}
+                  onTogglePin={onTogglePin}
                 />
               ))}
               {!isUnsorted && below.length > 0 && (
@@ -746,6 +788,7 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail }) {
                       dueClass={dueClass}
                       dimmed
                       onOpenDetail={onOpenDetail}
+                      onTogglePin={onTogglePin}
                     />
                   ))}
                 </>
@@ -766,7 +809,7 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail }) {
   );
 }
 
-function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail }) {
+function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail, onTogglePin }) {
   const w = t.weight ?? null;
   const weightCls =
     w === null      ? "none" :
@@ -775,7 +818,7 @@ function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail }
                       "low";
   return (
     <div
-      className={`ondeck-row ${done ? "done" : ""} ${dimmed ? "dim" : ""}`}
+      className={`ondeck-row ${done ? "done" : ""} ${dimmed ? "dim" : ""} ${t.pinned ? "pinned" : ""}`}
       onClick={() => onOpenDetail?.(t.id)}
       title={t.reasoning || "Click for details"}>
       <button
@@ -792,6 +835,14 @@ function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail }
         <span className={`ondeck-weight ${weightCls}`}>
           {Math.round(w * 100)}
         </span>
+      )}
+      {onTogglePin && (
+        <button
+          className={`ondeck-pin ${t.pinned ? "active" : ""}`}
+          title={t.pinned ? "Unpin" : "Pin — promote next when Today opens up"}
+          onClick={(e) => { e.stopPropagation(); onTogglePin(t.id, !t.pinned); }}>
+          📌
+        </button>
       )}
     </div>
   );
@@ -1393,6 +1444,32 @@ function App() {
     }).catch(err => console.warn("toggleDone failed:", err));
   };
 
+  // Pin/unpin a task. Same error-toast + refresh pattern as patchLane.
+  // The server enforces the 5-pin cap and returns 409 pin_cap_full if exceeded.
+  const togglePin = useCallback(async (id, pinned) => {
+    try {
+      const r = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        setToast({
+          kind: "warn",
+          text: body.message || `Couldn't ${pinned ? "pin" : "unpin"} (${r.status}).`,
+        });
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn("togglePin failed:", err);
+      return false;
+    } finally {
+      await refreshTasks();
+    }
+  }, [refreshTasks]);
+
   // Generic lane mutation — used by Start Now, Step away, modal lane picker,
   // and recommendation pull. Centralizes error toast + refresh so individual
   // call sites stay one-liners.
@@ -1557,6 +1634,7 @@ function App() {
               toggleDone={toggleDone}
               doneSet={doneSet}
               onOpenDetail={openDetail}
+              onTogglePin={togglePin}
               onReenrich={async () => {
                 await fetch("/api/tasks/reenrich", { method: "POST" });
                 await refreshTasks();
@@ -1726,6 +1804,7 @@ function App() {
         task={detailTask}
         goals={goals}
         onClose={() => setDetailTaskId(null)}
+        onTogglePin={togglePin}
         onToggleDone={async (id) => {
           // Close immediately for snappy UX; PATCH + refresh run in the
           // background so the auto-advance (if the task was the now-task)

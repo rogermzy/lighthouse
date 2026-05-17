@@ -2418,6 +2418,67 @@ textarea.editable-input { line-height: 1.5; }
 .ondeck-row.dim { opacity: 0.55; }
 .ondeck-row.dim:hover { opacity: 0.85; }
 
+/* ─── Pin affordance on this_week rows ─── */
+.ondeck-pin {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 6px;
+  margin-left: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  filter: grayscale(1);
+  transition: opacity 0.12s ease, filter 0.12s ease, background 0.12s ease;
+}
+.ondeck-row:hover .ondeck-pin { opacity: 0.55; }
+.ondeck-pin:hover { opacity: 1; background: var(--paper-2); }
+.ondeck-pin.active {
+  opacity: 1;
+  filter: none;
+}
+.ondeck-row.pinned { background: rgba(184, 68, 46, 0.04); }
+.ondeck-row.pinned .ondeck-title {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* "Pinned · next up" group gets a slightly warmer header treatment so it
+   reads as elevated, not just another theme bucket. */
+.ondeck-theme.pinned-group .ondeck-theme-head {
+  border-bottom-color: var(--accent-4);
+}
+.ondeck-theme.pinned-group .ondeck-theme-name {
+  color: var(--accent-4);
+  font-style: normal;
+  font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+/* Pinned rec row on Today page: warm tint + ★ swapped for 📌 (handled in JSX) */
+.task-row.rec-pinned {
+  background-image: none;
+  background-color: rgba(184, 68, 46, 0.06);
+  border-color: var(--accent-4) !important;
+}
+.task-row.rec-pinned .rec-rail {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+/* Pin toggle in TaskDetailModal: when active, fill in the accent color */
+.rec-defer.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(184, 68, 46, 0.06);
+  font-weight: 600;
+}
+
 .ondeck-weight {
   margin-left: 8px;
   display: inline-flex;
