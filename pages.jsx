@@ -418,16 +418,20 @@ function CalendarPage({ focusTask, onSchedule, scheduled }) {
 // Same lane-shortcut table as app.jsx — duplicated here because pages.jsx is a
 // separate Babel-standalone script and can't import. Keep them in sync.
 function quickLaneActionsForRow(lane) {
+  // Mirror of app.jsx quickLaneActions — keep in sync. ↑ promotes (toward
+  // Today), ↓ demotes (toward Backlog). Tooltip names the destination.
   switch (lane) {
     case "this_week":  return [
-      { label: "→ Today",      target: "today" },
-      { label: "↓ This month", target: "this_month" },
+      { icon: "↑", title: "Promote to Today",     target: "today" },
+      { icon: "↓", title: "Demote to This month", target: "this_month" },
     ];
     case "this_month": return [
-      { label: "↑ This week", target: "this_week" },
-      { label: "↓ Backlog",   target: "backlog" },
+      { icon: "↑", title: "Promote to This week", target: "this_week" },
+      { icon: "↓", title: "Demote to Backlog",    target: "backlog" },
     ];
-    case "backlog":    return [{ label: "↑ This week", target: "this_week" }];
+    case "backlog":    return [
+      { icon: "↑", title: "Promote to This week", target: "this_week" },
+    ];
     default:           return [];
   }
 }
@@ -666,9 +670,9 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
                   <button
                     key={a.target}
                     className="quick-lane-btn"
-                    title={`Move to ${a.label.replace(/^[↑↓→\s]+/, "")}`}
+                    title={a.title}
                     onClick={(e) => { e.stopPropagation(); onChangeLane(t.id, a.target); }}>
-                    {a.label}
+                    {a.icon}
                   </button>
                 ))}
               </div>

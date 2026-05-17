@@ -668,16 +668,22 @@ const PINNED_GROUP = "📌 Pinned · next up";
 // common path without crowding the row with all 4 destinations. Edge-case
 // moves (e.g. backlog → today) still go through the detail modal.
 function quickLaneActions(lane) {
+  // Convention: ↑ always promotes toward Today (more committed), ↓ always
+  // demotes toward Backlog (less committed). Each row has at most one of
+  // each direction so there's no within-row ambiguity. Tooltips name the
+  // specific destination on hover.
   switch (lane) {
     case "this_week":  return [
-      { label: "→ Today",      target: "today" },
-      { label: "↓ This month", target: "this_month" },
+      { icon: "↑", title: "Promote to Today",     target: "today" },
+      { icon: "↓", title: "Demote to This month", target: "this_month" },
     ];
     case "this_month": return [
-      { label: "↑ This week", target: "this_week" },
-      { label: "↓ Backlog",   target: "backlog" },
+      { icon: "↑", title: "Promote to This week", target: "this_week" },
+      { icon: "↓", title: "Demote to Backlog",    target: "backlog" },
     ];
-    case "backlog":    return [{ label: "↑ This week", target: "this_week" }];
+    case "backlog":    return [
+      { icon: "↑", title: "Promote to This week", target: "this_week" },
+    ];
     default:           return [];
   }
 }
@@ -860,9 +866,9 @@ function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail, 
         <button
           key={a.target}
           className="quick-lane-btn"
-          title={`Move to ${a.label.replace(/^[↑↓→\s]+/, "")}`}
+          title={a.title}
           onClick={(e) => { e.stopPropagation(); onChangeLane(t.id, a.target); }}>
-          {a.label}
+          {a.icon}
         </button>
       ))}
       {onTogglePin && (
