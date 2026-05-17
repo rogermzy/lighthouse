@@ -420,6 +420,7 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
   };
 
   return (
+    <>
     <section className="today-section" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div className="section-head">
         <div>
@@ -495,50 +496,71 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
           );
         })}
 
-        {recommendations.map(t => (
-          <div
-            key={`rec-${t.id}`}
-            className="task-row rec-row"
-            onClick={() => onOpenDetail?.(t.id)}
-            title={t.reasoning || "Recommended from this week — click for details"}>
-            <span className="rec-rail" aria-hidden>★</span>
-            <div className="task-main">
-              <div className="task-title">{t.title}</div>
-              <div className="task-note rec-meta">
-                <span className="rec-theme">{t.theme || "This week"}</span>
-                {t.reasoning && <span className="rec-reason"> · {t.reasoning}</span>}
-              </div>
-            </div>
-            <div className="task-right">
-              <SourceChip id={t.source} />
-              <span className="ondeck-weight high" title={`Weight ${Math.round((t.weight ?? 0) * 100)}%`}>
-                {Math.round((t.weight ?? 0) * 100)}
-              </span>
-              <button
-                className="rec-defer"
-                disabled={actingId === t.id}
-                title="Not a good fit — push to Later"
-                onClick={(e) => { e.stopPropagation(); handleDefer(t.id); }}>
-                → Later
-              </button>
-              <button
-                className="rec-pull"
-                disabled={actingId === t.id}
-                onClick={(e) => { e.stopPropagation(); handlePromote(t.id); }}>
-                {actingId === t.id ? "…" : "+ Pull"}
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {slotsLeft > 0 && recommendations.length < slotsLeft && (
-          <div className="rec-empty">
-            {slotsLeft - recommendations.length} open slot{slotsLeft - recommendations.length === 1 ? "" : "s"} ·
-            no strong picks above the line. <em>Re-rank the on-deck list or add a goal these would ladder to.</em>
-          </div>
-        )}
       </div>
     </section>
+
+    {slotsLeft > 0 && (
+      <section className="rec-section" style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+        <div className="section-head">
+          <div>
+            <div className="section-title">Suggested next</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+              {recommendations.length > 0
+                ? "Highest-weighted picks from this week. Pull what fits, push the rest to Later."
+                : "Highest-weighted picks from this week."}
+            </div>
+          </div>
+          <div className="section-meta">
+            <b>{slotsLeft}</b> open slot{slotsLeft === 1 ? "" : "s"}
+          </div>
+        </div>
+
+        {recommendations.length > 0 ? (
+          <div className="task-list">
+            {recommendations.map(t => (
+              <div
+                key={`rec-${t.id}`}
+                className="task-row rec-row"
+                onClick={() => onOpenDetail?.(t.id)}
+                title={t.reasoning || "Recommended from this week — click for details"}>
+                <span className="rec-rail" aria-hidden>★</span>
+                <div className="task-main">
+                  <div className="task-title">{t.title}</div>
+                  <div className="task-note rec-meta">
+                    <span className="rec-theme">{t.theme || "This week"}</span>
+                    {t.reasoning && <span className="rec-reason"> · {t.reasoning}</span>}
+                  </div>
+                </div>
+                <div className="task-right">
+                  <SourceChip id={t.source} />
+                  <span className="ondeck-weight high" title={`Weight ${Math.round((t.weight ?? 0) * 100)}%`}>
+                    {Math.round((t.weight ?? 0) * 100)}
+                  </span>
+                  <button
+                    className="rec-defer"
+                    disabled={actingId === t.id}
+                    title="Not a good fit — push to Later"
+                    onClick={(e) => { e.stopPropagation(); handleDefer(t.id); }}>
+                    → Later
+                  </button>
+                  <button
+                    className="rec-pull"
+                    disabled={actingId === t.id}
+                    onClick={(e) => { e.stopPropagation(); handlePromote(t.id); }}>
+                    {actingId === t.id ? "…" : "+ Pull"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rec-empty">
+            No strong picks above the line. <em>Re-rank the week list or add a goal these would ladder to.</em>
+          </div>
+        )}
+      </section>
+    )}
+    </>
   );
 }
 
