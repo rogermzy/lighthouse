@@ -3391,6 +3391,21 @@ textarea.editable-input { line-height: 1.5; }
   background: rgba(184, 68, 46, 0.03);
 }
 .breakdown-card.already { opacity: 0.78; }
+/* Past-quarter / past-month proposals are retrospectives the user can opt
+   into as backfill but shouldn't auto-commit. Dim them and accent the
+   "retrospective" eyebrow so they read as differently-shaped from active
+   planning items. */
+.breakdown-card.status-past {
+  opacity: 0.65;
+  background: var(--paper-2);
+}
+.breakdown-card.status-past:hover { opacity: 0.85; }
+.breakdown-card.status-past .breakdown-card-label-muted {
+  color: var(--muted-2);
+}
+.breakdown-card.status-current .breakdown-card-label-muted {
+  color: var(--accent-4);
+}
 .breakdown-card input[type="checkbox"] {
   margin-top: 3px;
   flex-shrink: 0;

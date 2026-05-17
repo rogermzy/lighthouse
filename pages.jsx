@@ -838,13 +838,15 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
       }
       const data = await r.json();
       setProposal(data);
-      // Default-select everything that doesn't conflict with an existing milestone.
+      // Default-select forward-looking proposals that don't conflict with
+      // an existing milestone. Skip "past" entries — those are retrospectives
+      // the user can opt into as backfill but shouldn't auto-commit.
       const next = new Set();
       for (const p of data.quarterly || []) {
-        if (!p.alreadyExists) next.add(`q:${p.quarter}`);
+        if (!p.alreadyExists && p.status !== "past") next.add(`q:${p.quarter}`);
       }
       for (const p of data.monthly || []) {
-        if (!p.alreadyExists) next.add(`m:${p.month}`);
+        if (!p.alreadyExists && p.status !== "past") next.add(`m:${p.month}`);
       }
       setSelected(next);
       setPhase("review");
@@ -962,12 +964,14 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
                 const p = proposal.quarterly.find(x => x.quarter === q);
                 if (!p) return null;
                 const key = `q:${q}`;
-                const isCurrent = q === proposal.context.currentQuarter;
+                const eyebrow = p.status === "past" ? "retrospective"
+                              : p.status === "current" ? "current" : null;
                 return (
                   <BreakdownCard
                     key={key}
                     label={q}
-                    labelMuted={isCurrent ? "current" : null}
+                    labelMuted={eyebrow}
+                    status={p.status}
                     title={p.title}
                     target={p.target}
                     reasoning={p.reasoning}
@@ -986,12 +990,14 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
             <div className="breakdown-list">
               {proposal.monthly.map(p => {
                 const key = `m:${p.month}`;
-                const isCurrent = p.month === proposal.context.currentMonth;
+                const eyebrow = p.status === "past" ? "retrospective"
+                              : p.status === "current" ? "this month" : null;
                 return (
                   <BreakdownCard
                     key={key}
                     label={p.month}
-                    labelMuted={isCurrent ? "this month" : null}
+                    labelMuted={eyebrow}
+                    status={p.status}
                     title={p.title}
                     target={p.target}
                     reasoning={p.reasoning}
@@ -1038,9 +1044,9 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
   );
 }
 
-function BreakdownCard({ label, labelMuted, title, target, reasoning, alreadyExists, existingTitle, checked, onToggle }) {
+function BreakdownCard({ label, labelMuted, status, title, target, reasoning, alreadyExists, existingTitle, checked, onToggle }) {
   return (
-    <label className={`breakdown-card ${checked ? "checked" : ""} ${alreadyExists ? "already" : ""}`}>
+    <label className={`breakdown-card ${checked ? "checked" : ""} ${alreadyExists ? "already" : ""} status-${status || "current"}`}>
       <input type="checkbox" checked={checked} onChange={onToggle} />
       <div className="breakdown-card-body">
         <div className="breakdown-card-head">
@@ -1053,7 +1059,9 @@ function BreakdownCard({ label, labelMuted, title, target, reasoning, alreadyExi
           )}
         </div>
         <div className="breakdown-card-title">{title}</div>
-        <div className="breakdown-card-target">→ {target}</div>
+        <div className="breakdown-card-target">
+          {status === "past" ? "○ " : "→ "}{target}
+        </div>
         <div className="breakdown-card-reasoning">{reasoning}</div>
       </div>
     </label>
