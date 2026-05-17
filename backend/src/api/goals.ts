@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/client.js";
+import { runBreakdownAgent, isBreakdownConfigured } from "../agent/breakdown.js";
 
 type AnnualRow = {
   id: string; title: string; color: string | null; intent: string | null;
@@ -168,6 +169,32 @@ goalsApi.post("/:horizon", async (c) => {
     VALUES (:id, :parent, :title, 0, :next_step, NULL)
   `).run({ id, parent, title, next_step: typeof body.nextStep === "string" ? body.nextStep : null });
   return c.json({ id, parent, title, progress: 0, nextStep: body.nextStep ?? null, linkedTaskId: null }, 201);
+});
+
+// Run the breakdown agent for a specific annual goal. Returns proposals only —
+// commitment happens via the existing POST /:horizon endpoints once the user
+// picks which milestones they want.
+goalsApi.post("/annual/:id/breakdown", async (c) => {
+  if (!isBreakdownConfigured()) {
+    return c.json(
+      { error: "breakdown agent disabled — set ANTHROPIC_API_KEY" },
+      503,
+    );
+  }
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const refinement =
+    typeof body.refinement === "string" && body.refinement.trim()
+      ? body.refinement.trim()
+      : undefined;
+
+  try {
+    const result = await runBreakdownAgent(id, refinement);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: "breakdown failed", detail: message }, 502);
+  }
 });
 
 goalsApi.delete("/:horizon/:id", (c) => {

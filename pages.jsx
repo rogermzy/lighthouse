@@ -530,10 +530,272 @@ function TrendSelect({ value, onCommit }) {
   );
 }
 
+// BreakdownModal — runs the breakdown agent on an annual goal, lets the user
+// pick which quarterly + monthly milestones to commit. Quarterly goals are
+// inserted first so we have their ids to use as `parent` on the monthlies.
+function BreakdownModal({ annual, onClose, onCommitted }) {
+  const [phase, setPhase] = React.useState("loading"); // loading | review | committing | error
+  const [proposal, setProposal] = React.useState(null);
+  const [errorMsg, setErrorMsg] = React.useState("");
+  const [refinement, setRefinement] = React.useState("");
+  // Per-proposal selection. Keyed by `q:Q1` or `m:May`. Already-existing slots
+  // default to unchecked (the user already has something there).
+  const [selected, setSelected] = React.useState(new Set());
+
+  const fetchProposal = React.useCallback(async (refinementText) => {
+    setPhase("loading");
+    setErrorMsg("");
+    try {
+      const r = await fetch(`/api/goals/annual/${encodeURIComponent(annual.id)}/breakdown`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(refinementText ? { refinement: refinementText } : {}),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || body.error || `${r.status}`);
+      }
+      const data = await r.json();
+      setProposal(data);
+      // Default-select everything that doesn't conflict with an existing milestone.
+      const next = new Set();
+      for (const p of data.quarterly || []) {
+        if (!p.alreadyExists) next.add(`q:${p.quarter}`);
+      }
+      for (const p of data.monthly || []) {
+        if (!p.alreadyExists) next.add(`m:${p.month}`);
+      }
+      setSelected(next);
+      setPhase("review");
+    } catch (err) {
+      setErrorMsg(err.message || String(err));
+      setPhase("error");
+    }
+  }, [annual.id]);
+
+  React.useEffect(() => { fetchProposal(); }, [fetchProposal]);
+
+  const toggle = (key) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const handleCommit = async () => {
+    if (!proposal || selected.size === 0) return;
+    setPhase("committing");
+    try {
+      // Quarterly first so we know their ids when wiring monthly parents.
+      // Map quarter label → created id, for parent linkage.
+      const createdQuarterId = {};
+      for (const p of proposal.quarterly) {
+        if (!selected.has(`q:${p.quarter}`)) continue;
+        const r = await fetch("/api/goals/quarterly", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: `${p.quarter}: ${p.title}`,
+            parent: annual.id,
+          }),
+        });
+        if (!r.ok) throw new Error(`quarterly ${p.quarter}: ${r.status}`);
+        const created = await r.json();
+        createdQuarterId[p.quarter] = created.id;
+      }
+      // Monthly: parent should be the quarterly we just created (if any),
+      // else the existing quarterly in that slot (if any), else fall back
+      // to the annual id which the schema accepts as a parent string.
+      for (const p of proposal.monthly) {
+        if (!selected.has(`m:${p.month}`)) continue;
+        const quarterOfMonth = monthToQuarter(p.month);
+        let parent = createdQuarterId[quarterOfMonth];
+        if (!parent) {
+          // No new quarterly committed this round — try to find an existing
+          // quarterly under this annual. Fall back to annual.id as parent.
+          parent = annual.id;
+        }
+        const r = await fetch("/api/goals/monthly", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: `${p.month}: ${p.title}`,
+            parent,
+            nextStep: p.target,
+          }),
+        });
+        if (!r.ok) throw new Error(`monthly ${p.month}: ${r.status}`);
+      }
+      onCommitted?.();
+    } catch (err) {
+      setErrorMsg(err.message || String(err));
+      setPhase("error");
+    }
+  };
+
+  const Q_ORDER = ["Q1", "Q2", "Q3", "Q4"];
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-breakdown" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-halftone" />
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+
+        <div className="modal-eyebrow">
+          <span>✨ Break it down</span>
+          {proposal && (
+            <span style={{ color: "var(--muted)" }}>
+              · {proposal.context.year} · current: {proposal.context.currentQuarter} / {proposal.context.currentMonth}
+            </span>
+          )}
+        </div>
+        <h2 className="breakdown-annual-title">{annual.title}</h2>
+        {annual.intent && <div className="breakdown-annual-intent">{annual.intent}</div>}
+
+        {phase === "loading" && (
+          <div className="breakdown-loading">
+            <div className="breakdown-spinner" />
+            <div>Thinking through quarterly + monthly milestones…</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 4 }}>
+              Adaptive thinking on Claude Opus 4.7 — usually 10–20 seconds.
+            </div>
+          </div>
+        )}
+
+        {phase === "error" && (
+          <div className="breakdown-error">
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Couldn't generate a breakdown.</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{errorMsg}</div>
+            <button className="rec-pull" style={{ marginTop: 14, marginLeft: 0 }} onClick={() => fetchProposal(refinement)}>
+              Try again
+            </button>
+          </div>
+        )}
+
+        {(phase === "review" || phase === "committing") && proposal && (
+          <>
+            <div className="breakdown-section-label">Quarterly milestones</div>
+            <div className="breakdown-list">
+              {Q_ORDER.map(q => {
+                const p = proposal.quarterly.find(x => x.quarter === q);
+                if (!p) return null;
+                const key = `q:${q}`;
+                const isCurrent = q === proposal.context.currentQuarter;
+                return (
+                  <BreakdownCard
+                    key={key}
+                    label={q}
+                    labelMuted={isCurrent ? "current" : null}
+                    title={p.title}
+                    target={p.target}
+                    reasoning={p.reasoning}
+                    alreadyExists={p.alreadyExists}
+                    existingTitle={p.existingTitle}
+                    checked={selected.has(key)}
+                    onToggle={() => toggle(key)}
+                  />
+                );
+              })}
+            </div>
+
+            <div className="breakdown-section-label">
+              Monthly milestones · {proposal.context.currentQuarter}
+            </div>
+            <div className="breakdown-list">
+              {proposal.monthly.map(p => {
+                const key = `m:${p.month}`;
+                const isCurrent = p.month === proposal.context.currentMonth;
+                return (
+                  <BreakdownCard
+                    key={key}
+                    label={p.month}
+                    labelMuted={isCurrent ? "this month" : null}
+                    title={p.title}
+                    target={p.target}
+                    reasoning={p.reasoning}
+                    alreadyExists={p.alreadyExists}
+                    existingTitle={p.existingTitle}
+                    checked={selected.has(key)}
+                    onToggle={() => toggle(key)}
+                  />
+                );
+              })}
+            </div>
+
+            <div className="breakdown-actions">
+              <div className="breakdown-refinement">
+                <input
+                  type="text"
+                  placeholder="Regenerate with feedback (optional, e.g. 'more focused on writing')"
+                  value={refinement}
+                  onChange={(e) => setRefinement(e.target.value)}
+                  disabled={phase === "committing"}
+                />
+                <button
+                  className="rec-defer"
+                  onClick={() => fetchProposal(refinement)}
+                  disabled={phase === "committing"}>
+                  ↻ Regenerate
+                </button>
+              </div>
+              <button
+                className="rec-pull"
+                onClick={handleCommit}
+                disabled={selected.size === 0 || phase === "committing"}>
+                {phase === "committing"
+                  ? "Committing…"
+                  : selected.size === 0
+                  ? "Select at least one"
+                  : `Commit ${selected.size} milestone${selected.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BreakdownCard({ label, labelMuted, title, target, reasoning, alreadyExists, existingTitle, checked, onToggle }) {
+  return (
+    <label className={`breakdown-card ${checked ? "checked" : ""} ${alreadyExists ? "already" : ""}`}>
+      <input type="checkbox" checked={checked} onChange={onToggle} />
+      <div className="breakdown-card-body">
+        <div className="breakdown-card-head">
+          <span className="breakdown-card-label">{label}</span>
+          {labelMuted && <span className="breakdown-card-label-muted">{labelMuted}</span>}
+          {alreadyExists && (
+            <span className="breakdown-already">
+              already set: <em>{existingTitle}</em>
+            </span>
+          )}
+        </div>
+        <div className="breakdown-card-title">{title}</div>
+        <div className="breakdown-card-target">→ {target}</div>
+        <div className="breakdown-card-reasoning">{reasoning}</div>
+      </div>
+    </label>
+  );
+}
+
+function monthToQuarter(month) {
+  const map = {
+    Jan: "Q1", Feb: "Q1", Mar: "Q1",
+    Apr: "Q2", May: "Q2", Jun: "Q2",
+    Jul: "Q3", Aug: "Q3", Sep: "Q3",
+    Oct: "Q4", Nov: "Q4", Dec: "Q4",
+  };
+  return map[month];
+}
+
 function GoalsPage({ onSuggest, goals, onGoalsChange }) {
   // Local copy for optimistic edits; resyncs whenever the prop updates.
   const [local, setLocal] = React.useState(goals);
   React.useEffect(() => setLocal(goals), [goals]);
+
+  // The annual goal currently being broken down (modal target).
+  const [breakdownAnnual, setBreakdownAnnual] = React.useState(null);
 
   const patchGoal = async (horizon, id, patch) => {
     setLocal(prev => ({
@@ -654,10 +916,27 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                                 onCommit={(v) => patchGoal("annual", g.id, { target: v })} />
                 </span>
               </div>
+              <button
+                className="goal-breakdown-btn"
+                title="Break this goal into quarterly + monthly milestones with an LLM"
+                onClick={() => setBreakdownAnnual(g)}>
+                ✨ Break it down
+              </button>
             </div>
           ))}
         </div>
       </section>
+
+      {breakdownAnnual && (
+        <BreakdownModal
+          annual={breakdownAnnual}
+          onClose={() => setBreakdownAnnual(null)}
+          onCommitted={() => {
+            setBreakdownAnnual(null);
+            onGoalsChange?.();
+          }}
+        />
+      )}
 
       {/* Quarterly */}
       <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>

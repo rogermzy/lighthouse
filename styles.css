@@ -2158,6 +2158,30 @@ textarea.editable-input { line-height: 1.5; }
 .goal-q-card:hover .goal-delete { opacity: 1; }
 .goal-delete:hover { background: rgba(184,68,46,0.12); color: var(--accent); }
 
+/* "Break it down" button on each annual goal card */
+.goal-breakdown-btn {
+  appearance: none;
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--rule);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 10px;
+  margin-top: 12px;
+  width: 100%;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.goal-breakdown-btn:hover {
+  color: var(--accent-4);
+  border-color: var(--accent-4);
+  border-style: solid;
+  background: rgba(var(--accent-rgb, 184,68,46), 0.04);
+}
+
 /* Inline delete for monthly rows */
 .goal-delete-inline {
   appearance: none;
@@ -3168,6 +3192,175 @@ textarea.editable-input { line-height: 1.5; }
   transition: opacity 0.12s ease;
 }
 .modal-primary:hover { opacity: 0.9; }
+
+/* ───────── breakdown modal ───────── */
+.modal-breakdown {
+  max-width: 680px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.breakdown-annual-title {
+  font-family: var(--font-display, "Playfair Display"), Georgia, serif;
+  font-size: 24px;
+  line-height: 1.2;
+  margin: 6px 0 4px;
+  position: relative;
+}
+.breakdown-annual-intent {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 22px;
+  position: relative;
+}
+.breakdown-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 0 50px;
+  color: var(--muted);
+  font-size: 13px;
+  position: relative;
+}
+.breakdown-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--rule);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.breakdown-error {
+  padding: 20px;
+  border: 1px dashed var(--rule);
+  border-radius: 8px;
+  background: var(--paper-2);
+  position: relative;
+}
+.breakdown-section-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 22px 0 8px;
+  position: relative;
+}
+.breakdown-section-label:first-of-type { margin-top: 4px; }
+.breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+.breakdown-card {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--paper);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.breakdown-card:hover { border-color: var(--ink-3, var(--ink)); }
+.breakdown-card.checked {
+  border-color: var(--accent);
+  background: rgba(184, 68, 46, 0.03);
+}
+.breakdown-card.already { opacity: 0.78; }
+.breakdown-card input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+}
+.breakdown-card-body { flex: 1; min-width: 0; }
+.breakdown-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.breakdown-card-label {
+  font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 2px 7px;
+}
+.breakdown-card-label-muted {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-4);
+}
+.breakdown-already {
+  font-size: 11px;
+  color: var(--muted-2);
+}
+.breakdown-already em {
+  color: var(--muted);
+  font-style: italic;
+}
+.breakdown-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.breakdown-card-target {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.breakdown-card-reasoning {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-style: italic;
+  line-height: 1.45;
+}
+.breakdown-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--rule);
+  position: relative;
+}
+.breakdown-refinement {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.breakdown-refinement input {
+  flex: 1;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.breakdown-refinement input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.breakdown-actions > button.rec-pull {
+  align-self: flex-end;
+  margin-left: 0;
+}
 
 /* ───────── demote modal ───────── */
 .modal-demote .modal-halftone {
