@@ -119,9 +119,9 @@ Open children of the parent become Lighthouse tasks (lane: `ondeck`). Completed 
 
 No config — Mac-only. If Things 3 is installed and reachable via AppleScript, the connector auto-enables on next server boot. First sync may prompt the OS for Automation permission; click Allow.
 
-## 8. Optional: set up the Gmail "Triage" label
+## 8. Optional: set up the Gmail "Lighthouse" label
 
-In Gmail, create a label called `Triage` (or any name — set `GMAIL_TRIAGE_LABEL` in `.env` to override). Apply it to any messages you want to land in the brain dump.
+In Gmail, create a label called `Lighthouse` (or any name — set `GMAIL_TRIAGE_LABEL` in `.env` to override). Apply it to any messages you want to land in the brain dump. Starring isn't a trigger — labeling is the only signal, so the import stays intentional.
 
 ## 9. Connect
 
@@ -138,7 +138,7 @@ You should see:
 [lighthouse] google: configured but not connected — visit /auth/google to connect
 ```
 
-Open <http://127.0.0.1:3000/auth/google> in your browser. Sign in, accept the scopes, and Google will redirect you back to the dashboard. From here on, the calendar widget shows your real day and the brain dump fills with `Triage`-labeled messages.
+Open <http://127.0.0.1:3000/auth/google> in your browser. Sign in, accept the scopes, and Google will redirect you back to the dashboard. From here on, the calendar widget shows your real day and the brain dump fills with `Lighthouse`-labeled messages.
 
 The server stores your refresh token in `backend/.tokens.json` (gitignored, chmod 0600). Delete that file to disconnect.
 
@@ -155,4 +155,4 @@ Current Google scopes: `calendar.events.readonly`, `gmail.readonly`, `tasks.read
 - **"Access blocked: Lighthouse has not completed the Google verification process"** — you didn't add your account as a Test User in step 3.
 - **"redirect_uri_mismatch"** — the redirect URI in step 4 must match exactly; check trailing slashes and `127.0.0.1` vs `localhost`.
 - **`/auth/google` returns 503** — `.env` is missing or empty; re-run step 5 and restart the server.
-- **No Gmail messages appearing** — confirm the label name matches `GMAIL_TRIAGE_LABEL` (default `Triage`) and that at least one message has the label applied.
+- **No Gmail messages appearing** — confirm the label name matches `GMAIL_TRIAGE_LABEL` (default `Lighthouse`) and that at least one message has the label applied.
