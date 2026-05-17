@@ -4730,12 +4730,31 @@ textarea.editable-input { line-height: 1.5; }
   .cal-day-header:nth-child(n+4) { display: none; }
 }
 
+/* The dedicated svg per nav card. Hidden by default — text labels do the
+   work on desktop. Becomes the sole identifier at icon-only widths. */
+.nav-icon-only {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+}
+.nav-tasks.active .nav-icon-only,
+.nav-inbox.active .nav-icon-only,
+.nav-calendar.active .nav-icon-only,
+.nav-goals.active .nav-icon-only,
+.nav-journal.active .nav-icon-only { color: var(--accent); }
+/* On the dark "Today" card the icon needs to be light against the ink bg. */
+.nav-tasks .nav-icon-only { color: #f4ecdb; }
+.nav-tasks.active .nav-icon-only { color: var(--accent-3, #d68b78); }
+
 /* ── Tier 4 · iPad portrait / large phone (900px and below) ─────────── */
 @media (max-width: 900px) {
   /* Collapse sidebar to icon-only — hide labels and rich subtexts so
      the nav buttons read as a vertical icon strip. */
   .app { grid-template-columns: 64px 1fr; }
   .sidebar { padding: 14px 6px; }
+  /* Reveal the SVG nav icons that were hidden on desktop. */
+  .nav-icon-only { display: inline-flex; }
   .brand-name, .brand-sub,
   .nav-tasks-eyebrow, .nav-tasks-title, .nav-tasks-sub, .nav-tasks-slots,
   .nav-inbox-eyebrow, .nav-inbox-title, .nav-inbox-sub, .nav-inbox-count,

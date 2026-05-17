@@ -60,6 +60,39 @@ const Icon = {
       <circle cx="11" cy="11" r="1.1" fill="currentColor"/>
     </svg>
   ),
+  // ─── Sidebar nav icons (shown only when text labels hide at ≤900px) ───
+  target: (p) => (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" {...p}>
+      <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.4"/>
+      <circle cx="9" cy="9" r="2.5" fill="currentColor"/>
+    </svg>
+  ),
+  list: (p) => (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" {...p}>
+      <circle cx="4" cy="5" r="1.2" fill="currentColor"/>
+      <circle cx="4" cy="9" r="1.2" fill="currentColor"/>
+      <circle cx="4" cy="13" r="1.2" fill="currentColor"/>
+      <path d="M8 5h7M8 9h7M8 13h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  ),
+  calendar: (p) => (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" {...p}>
+      <rect x="2.5" y="3.5" width="13" height="12" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M2.5 7h13" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M6 2v3M12 2v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  ),
+  star: (p) => (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" {...p}>
+      <path d="M9 1.5l1.8 5.5h5.7l-4.6 3.4 1.8 5.5L9 12.5l-4.6 3.4 1.8-5.5L1.5 7h5.7L9 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round"/>
+    </svg>
+  ),
+  book: (p) => (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" {...p}>
+      <rect x="3.5" y="2.5" width="11" height="13" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M6 6h6M6 9h6M6 12h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  ),
 };
 
 /* ─────────────────────── helpers ─────────────────────── */
@@ -102,6 +135,7 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
           className={`nav-tasks ${activeView === "today" ? "active" : ""}`}
           onClick={() => setView("today")}>
           <div className="nav-tasks-halftone" />
+          <div className="nav-icon-only" aria-hidden><Icon.target /></div>
           <div className="nav-tasks-main">
             <div className="nav-tasks-eyebrow">
               <span className="nav-tasks-bullet" />
@@ -130,6 +164,7 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
           className={`nav-inbox ${activeView === "tasks" ? "active" : ""}`}
           onClick={() => setView("tasks")}>
           <div className="nav-inbox-halftone" />
+          <div className="nav-icon-only" aria-hidden><Icon.list /></div>
           <div className="nav-inbox-main">
             <div className="nav-inbox-eyebrow">
               <span className="nav-inbox-dot" />
@@ -151,6 +186,7 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
           className={`nav-calendar ${activeView === "calendar" ? "active" : ""}`}
           onClick={() => setView("calendar")}>
           <div className="nav-calendar-halftone" />
+          <div className="nav-icon-only" aria-hidden><Icon.calendar /></div>
           <div className="nav-calendar-main">
             <div className="nav-calendar-eyebrow">
               <span className="nav-calendar-dot" style={{ background: SOURCES.gcal.color }} />
@@ -174,6 +210,7 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
           className={`nav-goals ${activeView === "goals" ? "active" : ""}`}
           onClick={() => setView("goals")}>
           <div className="nav-goals-halftone" />
+          <div className="nav-icon-only" aria-hidden><Icon.star /></div>
           <div className="nav-goals-main">
             <div className="nav-goals-eyebrow">
               <span className="nav-goals-icon">✦</span>
@@ -207,6 +244,7 @@ function Sidebar({ activeView, setView, counts, profile, journalTodayEntries, jo
           className={`nav-journal ${activeView === "journal" ? "active" : ""}`}
           onClick={() => setView("journal")}>
           <div className="nav-journal-halftone" />
+          <div className="nav-icon-only" aria-hidden><Icon.book /></div>
           <div className="nav-journal-main">
             <div className="nav-journal-eyebrow">
               <span className="nav-journal-quote">"</span>
