@@ -4723,6 +4723,13 @@ textarea.editable-input { line-height: 1.5; }
      non-essential. Frees ~280px for main content. */
   .app { grid-template-columns: 220px 1fr; }
   .rail { display: none; }
+  /* Tighten the annual goal card — the 72px progress ring eats too much
+     horizontal room when the grid drops to 2 columns. */
+  .goal-annual-card .ring { width: 54px; height: 54px; }
+  .goal-annual-card { padding: 16px 18px; gap: 12px; }
+  .goal-annual-body { gap: 12px; }
+  .goal-annual-title { font-size: 16px; }
+  .goal-annual-intent { font-size: 11.5px; }
   .cal-grid { /* calendar 4-day view → 2-day */
     grid-template-columns: 60px repeat(2, 1fr) !important;
   }
@@ -4783,6 +4790,11 @@ textarea.editable-input { line-height: 1.5; }
   .greeting { font-size: 24px; }
   .main { padding: 16px 18px 80px; }
   .goal-annual-grid { grid-template-columns: 1fr; }
+  /* Annual goal card: shrink ring further + tighten padding so the card
+     reads as a compact row, not a full half-screen block. */
+  .goal-annual-card .ring { width: 44px; height: 44px; }
+  .goal-annual-card { padding: 12px 14px; gap: 10px; }
+  .goal-annual-body { gap: 10px; align-items: center; }
   /* Calendar back to 1-day strip when very narrow. */
   .cal-grid {
     grid-template-columns: 50px 1fr !important;
@@ -4855,6 +4867,10 @@ textarea.editable-input { line-height: 1.5; }
 @media (max-width: 480px) {
   .greeting { font-size: 20px; }
   .main { padding: 12px 12px 80px; }
+  /* Goal card: hide the ring entirely on tiny screens — the % number in
+     the foot row already conveys the same info without taking up width. */
+  .goal-annual-card .ring { display: none; }
+  .goal-annual-card { padding: 12px; }
   /* Calendar: hide hour labels on the tightest screens; the event blocks
      still anchor themselves at the right vertical position. */
   .cal-grid { grid-template-columns: 36px 1fr !important; }

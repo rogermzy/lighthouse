@@ -693,7 +693,9 @@ function ProgressRing({ value, size = 60, stroke = 4, color = "var(--ink)" }) {
   const r = (size - stroke) / 2;
   const C = 2 * Math.PI * r;
   return (
-    <svg width={size} height={size} className="ring">
+    // viewBox lets CSS scale the ring at narrow breakpoints without distorting
+    // the stroke positions — coordinates stay in the original user-unit space.
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="ring">
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--rule)" strokeWidth={stroke} />
       <circle
         cx={size/2} cy={size/2} r={r}
