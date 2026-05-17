@@ -2180,29 +2180,27 @@ textarea.editable-input { line-height: 1.5; }
 .goal-q-card:hover .goal-delete { opacity: 1; }
 .goal-delete:hover { background: rgba(184,68,46,0.12); color: var(--accent); }
 
-/* "Break it down" — corner ✨ on each annual goal card. Same pattern as the
-   delete × (always-faintly-visible, fully visible on card hover, accent
-   tint on direct hover) so the two corner affordances form a visual pair.
-   Sits to the left of the delete × so X stays in its conventional slot. */
+/* "Break it down" — small ✨ icon button inline in the card foot, opposite
+   the % / target pair. Sized to match the foot's font weight + tabular
+   numerals so it reads as a peer affordance, not a CTA. Faintly visible
+   at rest, accent-tinted on hover. (Previously corner-positioned, which
+   overlapped the trend pill — moved into the foot for a cleaner layout.) */
 .goal-breakdown-btn {
-  position: absolute;
-  top: 10px;
-  right: 36px;
+  appearance: none;
+  border: 0;
+  background: transparent;
   width: 22px;
   height: 22px;
-  border: 0;
   border-radius: 999px;
-  background: transparent;
   color: var(--muted);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.35;
+  opacity: 0.4;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: opacity 0.12s ease, background 0.12s ease;
-  z-index: 2;
 }
 .goal-annual-card:hover .goal-breakdown-btn { opacity: 1; }
 .goal-breakdown-btn:hover { background: rgba(184, 68, 46, 0.12); }
