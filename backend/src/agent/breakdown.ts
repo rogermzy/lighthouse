@@ -101,33 +101,33 @@ export function isBreakdownConfigured(): boolean {
 const BREAKDOWN_TOOL: Anthropic.Tool = {
   name: "return_breakdown",
   description:
-    "Return the proposed quarterly and monthly milestones. Always include exactly four quarterly entries (Q1–Q4) and exactly three monthly entries covering the current quarter.",
+    "Return the proposed quarterly and monthly milestones for the time remaining in the year. ONLY include the current quarter and any future quarters — never the past. Same for monthly: only current and future months in the current quarter.",
   input_schema: {
     type: "object",
     properties: {
       quarterly: {
         type: "array",
-        description: "Exactly four entries — one per quarter (Q1, Q2, Q3, Q4) in order. Each MUST include the status field matching the time context in the user message.",
+        description: "MUST contain one entry per remaining quarter (current + future only) — never empty unless there are no remaining quarters. If today is in Q2, return exactly 3 entries (Q2, Q3, Q4). If today is in Q4, return exactly 1 entry (Q4). Whether or not the user has existing milestones for those quarters doesn't matter — always propose; the alreadyExists flag is set server-side from the row's metadata, and the user will see both their existing milestone and your alternative side-by-side. Never include past quarters.",
         items: {
           type: "object",
           properties: {
             quarter: { type: "string", enum: ["Q1", "Q2", "Q3", "Q4"] },
             status: {
               type: "string",
-              enum: ["past", "current", "future"],
-              description: "Time status relative to today. The user message tells you which quarter falls into which bucket — match it exactly. Past = already happened; current = quarter we're in now; future = upcoming.",
+              enum: ["current", "future"],
+              description: "Either 'current' (the quarter we're in now) or 'future' (an upcoming quarter). Past quarters must not appear in this array at all.",
             },
             title: {
               type: "string",
-              description: "Short milestone title, sentence case, no trailing punctuation. For past quarters, use retrospective tone ('Q1 focus: X'). For current/future, forward-looking.",
+              description: "Short forward-looking milestone title, sentence case, no trailing punctuation. No retrospective framing.",
             },
             target: {
               type: "string",
-              description: "What 'done' looks like — concrete and verifiable when possible. For past quarters, what should have been the deliverable. For current, what's achievable in the remaining weeks (not what would have needed the full quarter).",
+              description: "What 'done' looks like — concrete and verifiable. For the current quarter, scope strictly to what's achievable in the remaining days/weeks (the user message tells you how many). Don't propose work that would have needed the full 13 weeks.",
             },
             reasoning: {
               type: "string",
-              description: "Why this is the right milestone for this quarter to ladder to the annual goal. One sentence.",
+              description: "Why this is the right next step toward the annual goal in the time available. One sentence.",
             },
           },
           required: ["quarter", "status", "title", "target", "reasoning"],
@@ -135,7 +135,7 @@ const BREAKDOWN_TOOL: Anthropic.Tool = {
       },
       monthly: {
         type: "array",
-        description: "Exactly three entries — one per month in the CURRENT quarter only. Do not propose monthly milestones for past or future quarters. Each MUST include the status field matching whether that month is past, current, or future relative to today.",
+        description: "MUST contain one entry per remaining month in the CURRENT quarter (current month + any future months still ahead in this quarter) — never empty unless there are no remaining months. If today is in the last month of the quarter, return exactly 1 entry. Always propose for every remaining month even if the user has existing milestones there. Never include past months.",
         items: {
           type: "object",
           properties: {
@@ -145,20 +145,20 @@ const BREAKDOWN_TOOL: Anthropic.Tool = {
             },
             status: {
               type: "string",
-              enum: ["past", "current", "future"],
-              description: "Time status relative to today within the current quarter. Past months in the current quarter get a retrospective; the current month gets scoped to remaining days; future months get a forward-looking proposal.",
+              enum: ["current", "future"],
+              description: "Either 'current' (the month we're in now) or 'future' (an upcoming month in the current quarter). Past months must not appear.",
             },
             title: {
               type: "string",
-              description: "Short milestone title, sentence case.",
+              description: "Short forward-looking milestone title, sentence case.",
             },
             target: {
               type: "string",
-              description: "What 'done' looks like this month — small enough to ship in 4 weeks. For the current month, scope to remaining days.",
+              description: "What 'done' looks like this month — scoped to the remaining time. For the current month, scope to the remaining days specifically (the user message tells you how many).",
             },
             reasoning: {
               type: "string",
-              description: "Why this month's milestone is the right next step. One sentence.",
+              description: "Why this month's milestone is the right next step in the time available. One sentence.",
             },
           },
           required: ["month", "status", "title", "target", "reasoning"],
@@ -171,22 +171,20 @@ const BREAKDOWN_TOOL: Anthropic.Tool = {
 
 const SYSTEM_PROMPT = `You are the planning brain inside Lighthouse, a calm dashboard for an ADHD-aware user.
 
-Your job: break a yearly goal into 4 quarterly milestones (Q1–Q4) and 3 monthly milestones for the current quarter. Each proposal you return is tagged with a time status — past, current, or future. The user reviews your proposal and checks the ones they want to commit.
+Your job: take a yearly goal and propose a forward-only plan for the time remaining in the year. Quarterly milestones for the current quarter and any future quarters; monthly milestones for the current month and any future months in the current quarter. The user reviews and checks what to commit.
 
-TIME AWARENESS (most important rule):
-The user message tells you which quarters/months are past, current, or future relative to today. You MUST respect this when planning:
-
-- For PAST quarters/months (status: "past"): write a brief retrospective. One sentence summarizing what should have been the focus, in past tense. Do NOT propose forward-looking next steps. The user may skip these or use them as backfill records of what they actually shipped. Title can be retrospective ("Q1 focus: X" or "Apr push: Y").
-
-- For the CURRENT quarter/month (status: "current"): scope the proposal to what's achievable in the time remaining. The user message tells you days/weeks left. Don't propose work that would have needed the full quarter — propose what fits the remaining window. Be honest: if there are 2 weeks left, don't propose a 2-month milestone.
-
-- For FUTURE quarters/months (status: "future"): full forward-looking breakdown. Concrete next steps that ladder to the annual goal. These have the most planning headroom.
+TIME AWARENESS (the most important rule):
+- DO NOT propose anything for past quarters or past months. Those are over. Pretend they don't exist.
+- DO start planning from today's date forward.
+- DO respect the actual time remaining. The user message tells you how many days are left in the year, the current quarter, and the current month. Scope every proposal to fit that window.
+- DO scope the current quarter's proposal to what's achievable in the remaining weeks — NOT what would have needed the full 13-week quarter. If only 2 weeks remain in Q2, don't propose a quarter-sized milestone there.
+- DO scope the current month's proposal to the remaining days. If today is the 25th, don't propose a full-month deliverable.
 
 Other principles:
-- Quarterly milestones should each be a noticeable step forward, ordered so completing them in sequence makes sense.
-- Monthly milestones should be specific enough that "done" is unambiguous, and small enough to actually ship in 4 weeks (or fewer, for the current month).
+- Each milestone should be a noticeable step forward, ordered so completing them in sequence ladders cleanly to the annual goal.
+- Monthly milestones should be specific enough that "done" is unambiguous, and small enough to actually ship in the time available.
 - Match the user's existing intent and target language when given.
-- Respect what already exists: if the user has already set a milestone for a given quarter or month, your proposal for that slot should be a sensible *alternative* — not a duplicate. Don't reference the existing one in your reasoning; just propose the best fresh take.
+- Always propose for every remaining quarter and month — never return an empty array. If the user has already set a milestone for a given slot, your proposal for that slot should be a sensible *alternative* the user can compare against; don't skip the slot. Don't reference the existing milestone in your reasoning; just propose the best fresh take.
 - Avoid corporate filler ("alignment", "strategic", "leverage"). Write the way a thoughtful friend would describe the next step.
 
 Always call return_breakdown exactly once. Do not ask clarifying questions — work with what you have.`;
@@ -252,6 +250,20 @@ export async function runBreakdownAgent(
   const currentMonth = MONTH_NAMES[now.getMonth()];
   const daysLeftInQuarter = daysRemainingInQuarter(now, currentQuarter);
   const weeksLeftInQuarter = Math.max(1, Math.round(daysLeftInQuarter / 7));
+  // Days remaining in the year + the current month — used so the prompt
+  // gives the agent the real planning horizon and it doesn't propose
+  // 12-month milestones in late November.
+  const endOfYear  = new Date(year, 11, 31, 23, 59, 59);
+  const endOfMonth = new Date(year, now.getMonth() + 1, 0, 23, 59, 59);
+  const daysLeftInYear  = Math.max(0, Math.ceil((endOfYear.getTime()  - now.getTime()) / 86_400_000));
+  const daysLeftInMonth = Math.max(0, Math.ceil((endOfMonth.getTime() - now.getTime()) / 86_400_000));
+  // Lists of quarters and months we'll actually plan for (current + future).
+  const futureQuarters = QUARTER_ORDER.filter(
+    (q) => QUARTER_ORDER.indexOf(q) >= QUARTER_ORDER.indexOf(currentQuarter)
+  );
+  const futureMonthsInQuarter = MONTHS_IN_QUARTER[currentQuarter].filter(
+    (m) => MONTH_NAMES.indexOf(m) >= MONTH_NAMES.indexOf(currentMonth)
+  );
 
   // Build "what already exists" context for the prompt.
   const existingByQ = new Map<QuarterLabel, QuarterlyRow>();
@@ -279,33 +291,37 @@ export async function runBreakdownAgent(
     .map((g) => `- "${g.title}"${g.intent ? ` — ${g.intent}` : ""}`)
     .join("\n");
 
-  // Explicit per-quarter and per-month status table so the agent doesn't have
-  // to derive time relationships from the date — that's what we were burning
-  // up there with Q1 planning happening in May.
-  const quarterStatusLines = QUARTER_ORDER.map((q) => {
+  // Forward-only quarter table — past quarters are omitted entirely so the
+  // agent doesn't even see them as candidates. Same for months.
+  const quarterStatusLines = futureQuarters.map((q) => {
     const months = MONTHS_IN_QUARTER[q].join("-");
     const status = quarterStatus(q, currentQuarter);
     const note = status === "current"
-      ? ` ← CURRENT (~${daysLeftInQuarter} days / ~${weeksLeftInQuarter} weeks remaining)`
-      : status === "past" ? " ← PAST (already happened — retrospective only)" : " ← FUTURE";
+      ? ` ← CURRENT — only ~${daysLeftInQuarter} days / ~${weeksLeftInQuarter} weeks remaining. Scope to what fits.`
+      : " ← FUTURE (full quarter ahead)";
     return `  ${q} (${months}): status="${status}"${note}`;
   }).join("\n");
 
-  const monthStatusLines = MONTHS_IN_QUARTER[currentQuarter].map((m) => {
+  const monthStatusLines = futureMonthsInQuarter.map((m) => {
     const status = monthStatus(m, currentMonth);
     const note = status === "current"
-      ? ` ← CURRENT month — scope to what's achievable in remaining days`
-      : status === "past" ? " ← PAST month — retrospective only" : " ← FUTURE month";
+      ? ` ← CURRENT month — only ~${daysLeftInMonth} days remaining. Scope to that.`
+      : " ← FUTURE month";
     return `  ${m}: status="${status}"${note}`;
   }).join("\n");
 
   const userMessage = [
     `Today is ${now.toISOString().slice(0, 10)}. The year is ${year}.`,
     ``,
-    `TIME CONTEXT — use this to set the status field on each proposal:`,
+    `PLANNING HORIZON (forward-only — do not propose anything for past quarters or months):`,
+    `  • ${daysLeftInYear} days remaining in the year`,
+    `  • ${daysLeftInQuarter} days remaining in the current quarter (${currentQuarter})`,
+    `  • ${daysLeftInMonth} days remaining in the current month (${currentMonth})`,
+    ``,
+    `Quarters to plan for (${futureQuarters.length} total — current + future, past quarters omitted):`,
     quarterStatusLines,
     ``,
-    `Months in the current quarter (${currentQuarter}):`,
+    `Months to plan for in the current quarter (${futureMonthsInQuarter.length} total — past months omitted):`,
     monthStatusLines,
     ``,
     `Annual goal to break down:`,
@@ -327,7 +343,7 @@ export async function runBreakdownAgent(
       ? `User refinement on a previous proposal: ${refinement}`
       : null,
     ``,
-    `Now call return_breakdown with four quarterly milestones (Q1, Q2, Q3, Q4) and three monthly milestones (${MONTHS_IN_QUARTER[currentQuarter].join(", ")}).`,
+    `Now call return_breakdown. Quarterly array should contain exactly ${futureQuarters.length} entries (${futureQuarters.join(", ")}). Monthly array should contain exactly ${futureMonthsInQuarter.length} entries (${futureMonthsInQuarter.join(", ")}). Past quarters and past months must NOT appear.`,
   ]
     .filter((l) => l !== null)
     .join("\n");
@@ -370,29 +386,32 @@ export async function runBreakdownAgent(
 
   const quarterlyProposals: QuarterlyProposal[] = (rawQuarterly as Array<{
     quarter: QuarterLabel; status?: TimeStatus; title: string; target: string; reasoning: string;
-  }>).map((p) => {
-    const existing = existingByQ.get(p.quarter);
-    // Trust the server's status derivation over whatever the agent labelled
-    // it — the agent's tag is just a hint to shape its prose; the actual
-    // past/current/future identity is a function of today's date, not LLM
-    // discretion.
-    return {
-      quarter: p.quarter,
-      status: quarterStatus(p.quarter, currentQuarter),
-      title: p.title,
-      target: p.target,
-      reasoning: p.reasoning,
-      alreadyExists: Boolean(existing),
-      existingTitle: existing?.title,
-    };
-  });
+  }>)
+    // Safety net: strip any past-quarter entries the agent may have
+    // included despite the prompt. The server is authoritative on
+    // past/current/future since that's a function of today's date.
+    .filter((p) => quarterStatus(p.quarter, currentQuarter) !== "past")
+    .map((p) => {
+      const existing = existingByQ.get(p.quarter);
+      return {
+        quarter: p.quarter,
+        status: quarterStatus(p.quarter, currentQuarter),
+        title: p.title,
+        target: p.target,
+        reasoning: p.reasoning,
+        alreadyExists: Boolean(existing),
+        existingTitle: existing?.title,
+      };
+    });
 
   // Filter monthly to only the current quarter, then mark alreadyExists.
   const inQuarter = new Set(MONTHS_IN_QUARTER[currentQuarter]);
   const monthlyProposals: MonthlyProposal[] = (rawMonthly as Array<{
     month: MonthLabel; status?: TimeStatus; title: string; target: string; reasoning: string;
   }>)
-    .filter((p) => inQuarter.has(p.month))
+    // Same safety net: drop past months and anything outside the current
+    // quarter the agent may have invented.
+    .filter((p) => inQuarter.has(p.month) && monthStatus(p.month, currentMonth) !== "past")
     .map((p) => {
       const existing = existingByM.get(p.month);
       return {
