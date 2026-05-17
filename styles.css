@@ -607,7 +607,11 @@ input, textarea {
 }
 .ondeck-row {
   display: grid;
-  grid-template-columns: 20px 1fr auto auto auto;
+  /* 20px check · 1fr title · then 5 auto right-side slots: tag, source, due,
+     weight, pin. More than the row will typically need, but Grid leaves
+     unused autos at 0 width — and having extra slots means the pin button
+     (added last) doesn't wrap to a second row when it shows up on hover. */
+  grid-template-columns: 20px 1fr repeat(5, auto);
   align-items: center;
   gap: 12px;
   padding: 8px 4px;
