@@ -48,6 +48,18 @@ const Icon = {
       <path d="M1.5 2.5h9L7 6.5v3.5L5 9V6.5L1.5 2.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
     </svg>
   ),
+  // Hierarchical splitter — one parent node branching down to three children.
+  // Used for the "Break it down" action on annual goals: the visual reads
+  // immediately as decomposition (1 → 3) without leaning on an emoji.
+  tree: (p) => (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" {...p}>
+      <circle cx="7" cy="2.5" r="1.3" fill="currentColor"/>
+      <path d="M7 4v2.5M7 6.5L3 9.5M7 6.5l4 3M7 6.5v3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <circle cx="3" cy="11" r="1.1" fill="currentColor"/>
+      <circle cx="7" cy="11" r="1.1" fill="currentColor"/>
+      <circle cx="11" cy="11" r="1.1" fill="currentColor"/>
+    </svg>
+  ),
 };
 
 /* ─────────────────────── helpers ─────────────────────── */

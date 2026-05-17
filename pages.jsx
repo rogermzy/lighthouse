@@ -925,8 +925,9 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
         <div className="modal-halftone" />
         <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
 
-        <div className="modal-eyebrow">
-          <span>✨ Break it down</span>
+        <div className="modal-eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon.tree style={{ color: "var(--accent)" }} />
+          <span>Break it down</span>
           {proposal && (
             <span style={{ color: "var(--muted)" }}>
               · {proposal.context.year} · current: {proposal.context.currentQuarter} / {proposal.context.currentMonth}
@@ -1210,7 +1211,7 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                   className="goal-breakdown-btn"
                   title="Break this goal into quarterly + monthly milestones with an LLM"
                   onClick={() => setBreakdownAnnual(g)}>
-                  ✨
+                  <Icon.tree />
                 </button>
               </div>
             </div>

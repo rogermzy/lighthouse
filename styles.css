@@ -2183,30 +2183,30 @@ textarea.editable-input { line-height: 1.5; }
 .goal-q-card:hover .goal-delete { opacity: 1; }
 .goal-delete:hover { background: rgba(184,68,46,0.12); color: var(--accent); }
 
-/* "Break it down" — small ✨ icon button inline in the card foot, opposite
-   the % / target pair. Sized to match the foot's font weight + tabular
-   numerals so it reads as a peer affordance, not a CTA. Faintly visible
-   at rest, accent-tinted on hover. (Previously corner-positioned, which
-   overlapped the trend pill — moved into the foot for a cleaner layout.) */
+/* "Break it down" — small tree-icon button inline in the card foot, opposite
+   the % / target pair. Inherits color from `color` so the SVG (which uses
+   currentColor) re-tints on hover. Faintly visible at rest so it's
+   discoverable; accent-tinted background + accent color on direct hover. */
 .goal-breakdown-btn {
   appearance: none;
   border: 0;
   background: transparent;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1;
   cursor: pointer;
-  opacity: 0.4;
+  opacity: 0.55;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.12s ease, background 0.12s ease;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 .goal-annual-card:hover .goal-breakdown-btn { opacity: 1; }
-.goal-breakdown-btn:hover { background: rgba(184, 68, 46, 0.12); }
+.goal-breakdown-btn:hover {
+  background: rgba(184, 68, 46, 0.12);
+  color: var(--accent);
+}
 
 /* Inline delete for monthly rows */
 .goal-delete-inline {
