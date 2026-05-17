@@ -375,7 +375,7 @@ function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway, on
 const TODAY_CAP = 3;
 const REC_MIN_WEIGHT = 0.3;
 
-function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onOpenDetail, onStartNow, nowTaskId, onReorder }) {
+function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, onOpenDetail, onStartNow, nowTaskId, onReorder }) {
   const openCount = tasks.filter(t => !doneSet.has(t.id)).length;
   const slotsLeft = Math.max(0, TODAY_CAP - openCount);
 
@@ -404,11 +404,19 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onOpenDet
       .slice(0, slotsLeft);
   }, [weekTasks, tasks, slotsLeft]);
 
-  const [promotingId, setPromotingId] = useState(null);
+  // One "acting" lock per row covers both Pull and Defer — they're mutually
+  // exclusive on the same rec, and either action triggers a refresh that
+  // replaces the row anyway.
+  const [actingId, setActingId] = useState(null);
   const handlePromote = async (id) => {
-    if (promotingId || !onPromote) return;
-    setPromotingId(id);
-    try { await onPromote(id); } finally { setPromotingId(null); }
+    if (actingId || !onPromote) return;
+    setActingId(id);
+    try { await onPromote(id); } finally { setActingId(null); }
+  };
+  const handleDefer = async (id) => {
+    if (actingId || !onDefer) return;
+    setActingId(id);
+    try { await onDefer(id); } finally { setActingId(null); }
   };
 
   return (
@@ -507,10 +515,17 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onOpenDet
                 {Math.round((t.weight ?? 0) * 100)}
               </span>
               <button
+                className="rec-defer"
+                disabled={actingId === t.id}
+                title="Not a good fit — push to Later"
+                onClick={(e) => { e.stopPropagation(); handleDefer(t.id); }}>
+                → Later
+              </button>
+              <button
                 className="rec-pull"
-                disabled={promotingId === t.id}
+                disabled={actingId === t.id}
                 onClick={(e) => { e.stopPropagation(); handlePromote(t.id); }}>
-                {promotingId === t.id ? "…" : "+ Pull"}
+                {actingId === t.id ? "…" : "+ Pull"}
               </button>
             </div>
           </div>
@@ -1527,6 +1542,7 @@ function App() {
             nowTaskId={tasksByLane.now?.id}
             onStartNow={(id) => patchLane(id, "now")}
             onPromote={(id) => patchLane(id, "today")}
+            onDefer={(id) => patchLane(id, "later")}
             onReorder={async (id, index) => {
               // Optimistic local reorder so the row jumps immediately; the
               // PATCH call writes through to the server and refreshTasks()
