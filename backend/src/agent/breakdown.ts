@@ -1,11 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../db/client.js";
+import { getProfileContext } from "../api/profile.js";
 
 const MODEL = "claude-opus-4-7";
 
 type AnnualRow = {
-  id: string; title: string; intent: string | null; target: string | null;
-  progress: number; trend: string | null;
+  id: string; title: string; intent: string | null; context: string | null;
+  target: string | null; progress: number; trend: string | null;
 };
 type QuarterlyRow = {
   id: string; parent: string | null; title: string; progress: number;
@@ -310,9 +311,13 @@ export async function runBreakdownAgent(
     return `  ${m}: status="${status}"${note}`;
   }).join("\n");
 
+  const profileContext = getProfileContext();
   const userMessage = [
     `Today is ${now.toISOString().slice(0, 10)}. The year is ${year}.`,
     ``,
+    profileContext
+      ? `About the user (standing context — applies to all goals):\n${profileContext}\n`
+      : null,
     `PLANNING HORIZON (forward-only — do not propose anything for past quarters or months):`,
     `  • ${daysLeftInYear} days remaining in the year`,
     `  • ${daysLeftInQuarter} days remaining in the current quarter (${currentQuarter})`,
@@ -330,6 +335,7 @@ export async function runBreakdownAgent(
     annual.target ? `- Target for the year: ${annual.target}` : null,
     `- Progress so far: ${Math.round(annual.progress * 100)}%`,
     annual.trend ? `- Trend: ${annual.trend}` : null,
+    annual.context ? `\nContext for this goal (strategy, constraints, what's been tried):\n${annual.context}` : null,
     ``,
     existingLines.length > 0
       ? `Already-set milestones laddered to this goal:\n${existingLines.join("\n")}\n\nFor those slots, propose an alternative — not a duplicate. The user will see both and choose.`

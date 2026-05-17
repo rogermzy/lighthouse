@@ -67,6 +67,18 @@ const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string 
 if (!taskCols.some((c) => c.name === "url")) {
   db.exec("ALTER TABLE tasks ADD COLUMN url TEXT");
 }
+// Additive ALTER for the new context fields — both annual goals and the
+// user profile gain a free-form context textarea that agents read on every
+// run. Idempotent: PRAGMA-probe before the ALTER so re-runs are no-ops.
+const annualCols = db.prepare("PRAGMA table_info(goals_annual)").all() as { name: string }[];
+if (!annualCols.some((c) => c.name === "context")) {
+  db.exec("ALTER TABLE goals_annual ADD COLUMN context TEXT");
+}
+const profileCols = db.prepare("PRAGMA table_info(user_profile)").all() as { name: string }[];
+if (!profileCols.some((c) => c.name === "context")) {
+  db.exec("ALTER TABLE user_profile ADD COLUMN context TEXT");
+}
+
 if (!taskCols.some((c) => c.name === "pinned")) {
   // Pinned tasks (in this_week) surface as the top recommendation and sort
   // first in the list. Capped at 5 (enforced at the API layer). Auto-clears

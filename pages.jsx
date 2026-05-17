@@ -1199,6 +1199,17 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                   </div>
                 </div>
               </div>
+              {/* Context — strategy, constraints, what's been tried. Fed into
+                  the breakdown agent so its proposals fit this goal's actual
+                  situation instead of generic playbook answers. */}
+              <div className="goal-annual-context">
+                <div className="goal-annual-context-label">Context for the agent</div>
+                <EditableText
+                  value={g.context}
+                  placeholder="Strategy, constraints, what's already tried, available resources. The breakdown agent reads this on every run."
+                  multiline
+                  onCommit={(v) => patchGoal("annual", g.id, { context: v })} />
+              </div>
               <div className="goal-annual-foot">
                 <div style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
                   <span className="goal-pct mono">
@@ -1439,7 +1450,7 @@ function SettingsPage({ profile, onProfileChange, onTasksMutated, theme, onTheme
   const [syncs, setSyncs] = React.useState({});
   const [drafts, setDrafts] = React.useState({});
   const [savedMsg, setSavedMsg] = React.useState({});
-  const [profileDraft, setProfileDraft] = React.useState({ name: "", email: "", initials: "" });
+  const [profileDraft, setProfileDraft] = React.useState({ name: "", email: "", initials: "", context: "" });
   const [profileSaving, setProfileSaving] = React.useState(false);
   const [profileMsg, setProfileMsg] = React.useState(null);
   const [apiToken, setApiToken] = React.useState(null);
@@ -1504,13 +1515,14 @@ function SettingsPage({ profile, onProfileChange, onTasksMutated, theme, onTheme
           name,
           email: profileDraft.email !== "" ? profileDraft.email : (profile?.email ?? ""),
           initials: profileDraft.initials || undefined,
+          context: profileDraft.context !== "" ? profileDraft.context : (profile?.context ?? ""),
         }),
       });
       if (!r.ok) throw new Error(await r.text());
       const updated = await r.json();
       window.PROFILE = updated;
       onProfileChange?.(updated);
-      setProfileDraft({ name: "", email: "", initials: "" });
+      setProfileDraft({ name: "", email: "", initials: "", context: "" });
       setProfileMsg({ type: "ok", text: "Saved." });
     } catch (err) {
       setProfileMsg({ type: "err", text: String(err.message || err) });
@@ -1643,6 +1655,32 @@ function SettingsPage({ profile, onProfileChange, onTasksMutated, theme, onTheme
               placeholder="auto"
               onChange={(e) => setProfileDraft(d => ({ ...d, initials: e.target.value.toUpperCase() }))}
               style={{ flex: "0 0 90px", textAlign: "center", letterSpacing: "0.1em" }}
+            />
+          </div>
+        </div>
+        <div className="settings-field-row" style={{ alignItems: "flex-start" }}>
+          <label htmlFor="profile-context" style={{ paddingTop: 8 }}>About me</label>
+          <div className="settings-field-input">
+            <textarea
+              id="profile-context"
+              rows={6}
+              value={profileDraft.context !== "" ? profileDraft.context : (profile?.context ?? "")}
+              placeholder="Standing context all LLM agents read on every run — your role, work rhythms, constraints, relationships. Example:
+
+I run Eon Growth Consulting, ~30 retainer clients. Mornings are deep work, afternoons are client comms. Targeting 4-day workweek. Partner runs ops. Asia time zone."
+              onChange={(e) => setProfileDraft(d => ({ ...d, context: e.target.value }))}
+              style={{
+                width: "100%",
+                fontFamily: "inherit",
+                fontSize: 13,
+                lineHeight: 1.5,
+                padding: "8px 10px",
+                border: "1px solid var(--rule)",
+                borderRadius: 6,
+                background: "var(--paper)",
+                color: "var(--ink)",
+                resize: "vertical",
+              }}
             />
           </div>
         </div>

@@ -4,6 +4,7 @@ import { runBreakdownAgent, isBreakdownConfigured } from "../agent/breakdown.js"
 
 type AnnualRow = {
   id: string; title: string; color: string | null; intent: string | null;
+  context: string | null;
   target: string | null; progress: number; trend: string | null;
 };
 type QuarterlyRow = {
@@ -51,6 +52,7 @@ const ALLOWED: Record<string, Record<string, string>> = {
     title: "title",
     color: "color",
     intent: "intent",
+    context: "context",
     target: "target",
     progress: "progress",
     trend: "trend",
@@ -141,10 +143,10 @@ goalsApi.post("/:horizon", async (c) => {
 
   if (horizon === "annual") {
     db.prepare(`
-      INSERT INTO goals_annual (id, title, color, intent, target, progress, trend)
-      VALUES (:id, :title, :color, NULL, NULL, 0, 'on-track')
+      INSERT INTO goals_annual (id, title, color, intent, context, target, progress, trend)
+      VALUES (:id, :title, :color, NULL, NULL, NULL, 0, 'on-track')
     `).run({ id, title, color: typeof body.color === "string" ? body.color : "#5e6ad2" });
-    return c.json({ id, title, color: body.color ?? "#5e6ad2", intent: null, target: null, progress: 0, trend: "on-track" }, 201);
+    return c.json({ id, title, color: body.color ?? "#5e6ad2", intent: null, context: null, target: null, progress: 0, trend: "on-track" }, 201);
   }
 
   if (horizon === "quarterly") {

@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS goals_annual (
   title     TEXT NOT NULL,
   color     TEXT,
   intent    TEXT,
+  -- Free-form context the breakdown agent reads on every run: strategy,
+  -- assumptions, constraints, existing assets, what's been tried. Lets
+  -- the agent propose milestones that fit the user's actual situation
+  -- instead of "generic SaaS playbook" answers.
+  context   TEXT,
   target    TEXT,
   progress  REAL NOT NULL DEFAULT 0,
   trend     TEXT
@@ -125,6 +130,11 @@ CREATE TABLE IF NOT EXISTS user_profile (
   name        TEXT NOT NULL,
   email       TEXT,
   initials    TEXT,
+  -- Free-form "about me" context that all LLM agents (suggest, breakdown,
+  -- enrichment) read on every run: role, work rhythms, constraints,
+  -- relationships. The standing facts about the user that shape every
+  -- proposal — set once in Settings, used everywhere.
+  context     TEXT,
   updated_at  TEXT NOT NULL
 );
 
