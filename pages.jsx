@@ -415,11 +415,25 @@ function CalendarPage({ focusTask, onSchedule, scheduled }) {
    The Today page is the execution surface; this page is the planning
    surface. Crossing between the two is a deliberate context switch.
    ───────────────────────────────────────────────────────────── */
+// Same lane-shortcut table as app.jsx — duplicated here because pages.jsx is a
+// separate Babel-standalone script and can't import. Keep them in sync.
+function quickLaneActionsForRow(lane) {
+  switch (lane) {
+    case "this_week":  return [{ label: "→ Today",     target: "today" }];
+    case "this_month": return [
+      { label: "↑ This week", target: "this_week" },
+      { label: "↓ Backlog",   target: "backlog" },
+    ];
+    case "backlog":    return [{ label: "↑ This week", target: "this_week" }];
+    default:           return [];
+  }
+}
+
 function TasksPage({
   inbox, triage, addInboxItem,
   weekSlot,
   thisMonthTasks, backlogTasks,
-  toggleDone, doneSet, onOpenDetail,
+  toggleDone, doneSet, onOpenDetail, onChangeLane,
   hideCompleted, onToggleHideCompleted,
 }) {
   const [draft, setDraft] = useState("");
@@ -548,6 +562,7 @@ function TasksPage({
         doneSet={doneSet}
         toggleDone={toggleDone}
         onOpenDetail={onOpenDetail}
+        onChangeLane={onChangeLane}
         emptyText="Empty for now. Newly-synced tasks land here after the first triage decision."
       />
 
@@ -576,6 +591,7 @@ function TasksPage({
             doneSet={doneSet}
             toggleDone={toggleDone}
             onOpenDetail={onOpenDetail}
+            onChangeLane={onChangeLane}
             emptyText="Backlog is empty."
             hideHeader
           />
@@ -587,7 +603,7 @@ function TasksPage({
 
 // Compact list section — used for this_month and backlog. No theming, no
 // below-the-line foldout; just a clean grouped list ordered by weight.
-function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail, emptyText, hideHeader }) {
+function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail, onChangeLane, emptyText, hideHeader }) {
   const sorted = useMemo(
     () => [...tasks].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0)),
     [tasks],
@@ -643,6 +659,15 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
                     {Math.round(t.weight * 100)}
                   </span>
                 )}
+                {onChangeLane && quickLaneActionsForRow(t.lane).map((a) => (
+                  <button
+                    key={a.target}
+                    className="quick-lane-btn"
+                    title={`Move to ${a.label.replace(/^[↑↓→\s]+/, "")}`}
+                    onClick={(e) => { e.stopPropagation(); onChangeLane(t.id, a.target); }}>
+                    {a.label}
+                  </button>
+                ))}
               </div>
             </div>
           ))}

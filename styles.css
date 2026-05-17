@@ -625,11 +625,11 @@ input, textarea {
 }
 .ondeck-row {
   display: grid;
-  /* 20px check · 1fr title · then 5 auto right-side slots: tag, source, due,
-     weight, pin. More than the row will typically need, but Grid leaves
-     unused autos at 0 width — and having extra slots means the pin button
-     (added last) doesn't wrap to a second row when it shows up on hover. */
-  grid-template-columns: 20px 1fr repeat(5, auto);
+  /* 20px check · 1fr title · then up to 7 auto right-side slots: tag, source,
+     due, weight, quick-lane, pin (and headroom for future actions). Grid
+     leaves unused autos at 0 width, so the over-provisioning costs nothing
+     and means hover-revealed buttons can't wrap to a second row. */
+  grid-template-columns: 20px 1fr repeat(7, auto);
   align-items: center;
   gap: 12px;
   padding: 8px 4px;
@@ -2465,6 +2465,36 @@ textarea.editable-input { line-height: 1.5; }
 .ondeck-row.pinned .ondeck-title {
   color: var(--ink);
   font-weight: 500;
+}
+
+/* Quick-lane-shift buttons (→ Today, ↑ This week, etc.). Fade in on row
+   hover, full opacity on direct hover. Same visual pattern as .ondeck-pin
+   so the row reads as having a coherent "actions appear on hover" gesture
+   rather than a grab bag of differently-styled affordances. */
+.quick-lane-btn {
+  appearance: none;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  margin-left: 2px;
+  cursor: pointer;
+  opacity: 0;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.ondeck-row:hover .quick-lane-btn,
+.task-row:hover .quick-lane-btn { opacity: 0.7; }
+.quick-lane-btn:hover {
+  opacity: 1;
+  color: var(--ink);
+  border-color: var(--ink-2);
+  background: var(--paper-2);
 }
 
 /* "Pinned · next up" group gets a slightly warmer header treatment so it

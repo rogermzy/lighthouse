@@ -663,7 +663,23 @@ const BELOW_LINE = 0.3;
 
 const PINNED_GROUP = "📌 Pinned · next up";
 
-function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onTogglePin }) {
+// Quick-action lane shortcuts shown on row hover. Each lane gets only the 1-2
+// most-likely moves from where it currently sits — cuts triage clicks for the
+// common path without crowding the row with all 4 destinations. Edge-case
+// moves (e.g. backlog → today) still go through the detail modal.
+function quickLaneActions(lane) {
+  switch (lane) {
+    case "this_week":  return [{ label: "→ Today",     target: "today" }];
+    case "this_month": return [
+      { label: "↑ This week", target: "this_week" },
+      { label: "↓ Backlog",   target: "backlog" },
+    ];
+    case "backlog":    return [{ label: "↑ This week", target: "this_week" }];
+    default:           return [];
+  }
+}
+
+function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onTogglePin, onChangeLane }) {
   const [reenriching, setReenriching] = useState(false);
   const [showBelow, setShowBelow] = useState(() => new Set());
   const dueClass = (d) => (d === "tomorrow" || d === "fri") ? "warn" : "";
@@ -772,6 +788,7 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
                   dueClass={dueClass}
                   onOpenDetail={onOpenDetail}
                   onTogglePin={onTogglePin}
+                  onChangeLane={onChangeLane}
                 />
               ))}
               {!isUnsorted && below.length > 0 && (
@@ -809,7 +826,7 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
   );
 }
 
-function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail, onTogglePin }) {
+function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail, onTogglePin, onChangeLane }) {
   const w = t.weight ?? null;
   const weightCls =
     w === null      ? "none" :
@@ -836,6 +853,15 @@ function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail, 
           {Math.round(w * 100)}
         </span>
       )}
+      {onChangeLane && quickLaneActions(t.lane).map((a) => (
+        <button
+          key={a.target}
+          className="quick-lane-btn"
+          title={`Move to ${a.label.replace(/^[↑↓→\s]+/, "")}`}
+          onClick={(e) => { e.stopPropagation(); onChangeLane(t.id, a.target); }}>
+          {a.label}
+        </button>
+      ))}
       {onTogglePin && (
         <button
           className={`ondeck-pin ${t.pinned ? "active" : ""}`}
@@ -1650,6 +1676,7 @@ function App() {
               doneSet={doneSet}
               onOpenDetail={openDetail}
               onTogglePin={togglePin}
+              onChangeLane={patchLane}
               onReenrich={async () => {
                 await fetch("/api/tasks/reenrich", { method: "POST" });
                 await refreshTasks();
@@ -1661,6 +1688,7 @@ function App() {
           toggleDone={toggleDone}
           doneSet={doneSet}
           onOpenDetail={openDetail}
+          onChangeLane={patchLane}
           hideCompleted={tasksHideCompleted}
           onToggleHideCompleted={() => setTasksHideCompleted(v => !v)}
         />
