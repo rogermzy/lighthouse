@@ -267,12 +267,29 @@ export async function runBreakdownAgent(
   );
   if (!toolUse) throw new Error("agent did not call return_breakdown");
 
-  const input = toolUse.input as {
-    quarterly?: Array<{ quarter: QuarterLabel; title: string; target: string; reasoning: string }>;
-    monthly?: Array<{ month: MonthLabel; title: string; target: string; reasoning: string }>;
-  };
+  // Defensive parse — the schema requires arrays for quarterly and monthly,
+  // but Claude occasionally returns null, a single object, or a JSON string
+  // instead. Coerce anything non-array to an empty array and log the raw
+  // input so we can debug surprises rather than 500-ing.
+  const rawInput = toolUse.input as Record<string, unknown> | null | undefined;
+  let parsed: { quarterly?: unknown; monthly?: unknown } = rawInput ?? {};
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { parsed = {}; }
+  }
+  const rawQuarterly = Array.isArray(parsed.quarterly) ? parsed.quarterly : [];
+  const rawMonthly   = Array.isArray(parsed.monthly)   ? parsed.monthly   : [];
 
-  const quarterlyProposals: QuarterlyProposal[] = (input.quarterly ?? []).map((p) => {
+  if (rawQuarterly.length === 0 && rawMonthly.length === 0) {
+    console.warn(
+      "[breakdown] agent returned empty/malformed input:",
+      JSON.stringify(rawInput).slice(0, 800),
+    );
+    throw new Error("agent returned no quarterly or monthly proposals");
+  }
+
+  const quarterlyProposals: QuarterlyProposal[] = (rawQuarterly as Array<{
+    quarter: QuarterLabel; title: string; target: string; reasoning: string;
+  }>).map((p) => {
     const existing = existingByQ.get(p.quarter);
     return {
       quarter: p.quarter,
@@ -286,7 +303,9 @@ export async function runBreakdownAgent(
 
   // Filter monthly to only the current quarter, then mark alreadyExists.
   const inQuarter = new Set(MONTHS_IN_QUARTER[currentQuarter]);
-  const monthlyProposals: MonthlyProposal[] = (input.monthly ?? [])
+  const monthlyProposals: MonthlyProposal[] = (rawMonthly as Array<{
+    month: MonthLabel; title: string; target: string; reasoning: string;
+  }>)
     .filter((p) => inQuarter.has(p.month))
     .map((p) => {
       const existing = existingByM.get(p.month);
