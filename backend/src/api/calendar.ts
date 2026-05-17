@@ -98,7 +98,15 @@ calendarApi.get("/today", (c) => {
 
   // Today-only free/best/total for the rail card (which still shows today's shape).
   const todayEvents = days[0]?.events ?? [];
-  const freeBlocks = computeFreeBlocks(todayEvents, meta.day_start_min, meta.day_end_min);
+  // Free-time floor is "now" (not the configured day-start) so the count
+  // shrinks as the day passes — at 3pm a "7h30m free" line is nonsense; the
+  // user only has hours until dayEnd to actually use. Clamped so an early
+  // morning user (before dayStart) still gets the full day window, and a
+  // post-dayEnd user gets 0 instead of negative.
+  const nowDate = new Date();
+  const nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const effectiveStart = Math.min(meta.day_end_min, Math.max(meta.day_start_min, nowMin));
+  const freeBlocks = computeFreeBlocks(todayEvents, effectiveStart, meta.day_end_min);
   const freeTotal = freeBlocks.reduce((a, b) => a + (b.end - b.start), 0);
   const bestBlock = freeBlocks.length > 0
     ? freeBlocks.reduce((a, b) => (b.end - b.start) > (a.end - a.start) ? b : a)

@@ -1112,6 +1112,21 @@ function App() {
     return () => clearInterval(id);
   }, []);
 
+  // Calendar free-time ticker: re-fetch /api/calendar/today every 60s and
+  // bump a tick state so components reading the (now updated) globals
+  // re-render. The server's `freeTotal` is computed dynamically from the
+  // current minute, so this is what makes "7h 30m free" count down to
+  // "0h 0m" as the day passes — no client-side math needed.
+  const [calTick, setCalTick] = useState(0);
+  useEffect(() => {
+    const refresh = async () => {
+      await window.refreshCalendar?.();
+      setCalTick((t) => t + 1);
+    };
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const journalTodayEntries = useMemo(() => {
     return journal
       .filter(e => new Date(e.createdAt).getTime() >= startOfTodayMs)

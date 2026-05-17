@@ -250,6 +250,23 @@ async function fetchJson(path) {
   return r.json();
 }
 
+// Re-fetch just the calendar slice — called every minute from App so the
+// "free today" countdown ticks down as the day passes without requiring a
+// full reload. Reassigns the module-level globals AND window mirrors so
+// components reading either path see the fresh values.
+window.refreshCalendar = async () => {
+  try {
+    const calRes = await fetchJson("/api/calendar/today");
+    CALENDAR = calRes.calendar;
+    FREE_BLOCKS = calRes.freeBlocks;
+    FREE_TOTAL = calRes.freeTotal;
+    BEST_BLOCK = calRes.bestBlock;
+    Object.assign(window, { CALENDAR, FREE_BLOCKS, FREE_TOTAL, BEST_BLOCK });
+  } catch (err) {
+    console.warn("refreshCalendar failed:", err);
+  }
+};
+
 window.__dataReady = (async () => {
   const [tasksRes, inboxRes, calRes, goalsRes, weekRes, profileRes, journalRes] = await Promise.all([
     fetchJson("/api/tasks"),
