@@ -76,10 +76,24 @@ mac-app/
 └── README.md
 ```
 
+## Custom app icon
+
+Ships with a generated icon (cream squircle + accent target glyph + halftone texture — matches the dashboard's design vocabulary). Source lives in `make-icon.swift` — pure CoreGraphics, no design tool required. To tweak colors / shapes:
+
+```bash
+# Edit make-icon.swift, then:
+rm Resources/AppIcon.icns
+./build.sh   # auto-regenerates the .icns and bundles it
+```
+
+To swap in a hand-designed icon entirely, drop your own `AppIcon.icns` at `Resources/AppIcon.icns` and rebuild.
+
+## Launch at login
+
+Click the status bar icon → **Launch at Login** to toggle. Uses macOS 13+'s `SMAppService` API — no LaunchAgents plist, no helper bundle needed. The checkmark stays in sync if you toggle from System Settings → General → Login Items.
+
 ## Optional polish you can add
 
-- **Custom app icon**: drop `AppIcon.icns` into `Sources/Resources/`, add `<key>CFBundleIconFile</key><string>AppIcon</string>` to `Info.plist`.
-- **Launch at login**: System Settings → General → Login Items → add `Lighthouse.app`.
 - **Universal binary** (Intel + Apple Silicon): see the commented section at the bottom of `build.sh`.
 - **Notarization for distribution**: only needed if you want friends to install via download without Gatekeeper warnings. Personal use doesn't need it (`codesign --sign -` runs ad-hoc).
 

@@ -22,6 +22,8 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <!-- Allow plain-HTTP loads to 127.0.0.1 / localhost (the local Hono server). -->
     <key>NSAppTransportSecurity</key>
     <dict>

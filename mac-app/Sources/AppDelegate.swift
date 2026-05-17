@@ -1,7 +1,8 @@
 import Cocoa
 import WebKit
+import ServiceManagement
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var serverManager: ServerManager?
@@ -235,11 +236,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                 action: #selector(viewLogs),
                                 keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
+        // Launch-at-login toggle. State is read fresh each time the menu
+        // opens (see menuWillOpen) so the checkmark stays in sync if the
+        // user toggled it from System Settings.
+        let launchItem = NSMenuItem(title: "Launch at Login",
+                                    action: #selector(toggleLaunchAtLogin),
+                                    keyEquivalent: "")
+        menu.addItem(launchItem)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit",
                                 action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: ""))
+        menu.delegate = self
         item.menu = menu
         self.statusItem = item
+    }
+
+    // MARK: - NSMenuDelegate — refresh the launch-at-login checkmark on each open
+    func menuWillOpen(_ menu: NSMenu) {
+        if #available(macOS 13.0, *) {
+            if let item = menu.item(withTitle: "Launch at Login") {
+                item.state = SMAppService.mainApp.status == .enabled ? NSControl.StateValue.on : NSControl.StateValue.off
+            }
+        }
     }
 
     // MARK: - Actions
@@ -266,6 +285,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func viewLogs() {
         let path = NSString(string: "~/Library/Logs/Lighthouse.log").expandingTildeInPath
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        guard #available(macOS 13.0, *) else { return }
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't update launch-at-login"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
 }
 

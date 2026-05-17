@@ -27,9 +27,18 @@ echo "Building Lighthouse.app for $TARGET …"
 rm -rf "$BUNDLE"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 
+# Generate the app icon if missing. make-icon.swift draws the iconset via
+# CoreGraphics and runs iconutil to produce Resources/AppIcon.icns.
+if [ ! -f Resources/AppIcon.icns ]; then
+  echo "Generating AppIcon.icns…"
+  swift make-icon.swift
+fi
+cp Resources/AppIcon.icns "$RES_DIR/AppIcon.icns"
+
 swiftc \
   -framework Cocoa \
   -framework WebKit \
+  -framework ServiceManagement \
   -target "$TARGET" \
   -O \
   Sources/*.swift \
