@@ -1171,6 +1171,12 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                 backgroundImage: `radial-gradient(circle at center, ${g.color || "#5e6ad2"} 1px, transparent 1.3px)`
               }} />
               <button className="goal-delete" title="Delete goal" onClick={() => deleteGoal("annual", g.id)}>×</button>
+              <button
+                className="goal-breakdown-btn"
+                title="Break this goal into quarterly + monthly milestones with an LLM"
+                onClick={() => setBreakdownAnnual(g)}>
+                ✨
+              </button>
               <div className="goal-annual-head">
                 <div className="goal-color-bar" style={{ background: g.color || "#5e6ad2" }} />
                 <TrendSelect value={g.trend} onCommit={(v) => patchGoal("annual", g.id, { trend: v })} />
@@ -1197,12 +1203,6 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                                 onCommit={(v) => patchGoal("annual", g.id, { target: v })} />
                 </span>
               </div>
-              <button
-                className="goal-breakdown-btn"
-                title="Break this goal into quarterly + monthly milestones with an LLM"
-                onClick={() => setBreakdownAnnual(g)}>
-                ✨ Break it down
-              </button>
             </div>
           ))}
         </div>
