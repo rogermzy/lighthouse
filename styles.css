@@ -1987,6 +1987,9 @@ input, textarea {
   justify-content: space-between;
   gap: 10px;
   position: relative;
+  /* Reserve room for the corner delete × (22×22 at right:10px) so the
+     right-aligned trend pill doesn't slide under it on hover. */
+  padding-right: 28px;
 }
 .goal-color-bar {
   width: 28px;
