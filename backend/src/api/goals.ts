@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { db } from "../db/client.js";
 import { runBreakdownAgent, isBreakdownConfigured } from "../agent/breakdown.js";
+import {
+  runTaskBreakdownAgent,
+  isTaskBreakdownConfigured,
+  commitTasksForMilestone,
+} from "../agent/task-breakdown.js";
 
 type AnnualRow = {
   id: string; title: string; color: string | null; intent: string | null;
@@ -196,6 +201,43 @@ goalsApi.post("/annual/:id/breakdown", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return c.json({ error: "breakdown failed", detail: message }, 502);
+  }
+});
+
+// Run the task-breakdown agent for a single monthly milestone. Returns
+// 3-7 proposed tasks the user can review + commit (separate endpoint).
+goalsApi.post("/monthly/:id/break-into-tasks", async (c) => {
+  if (!isTaskBreakdownConfigured()) {
+    return c.json({ error: "task-breakdown agent disabled — set ANTHROPIC_API_KEY" }, 503);
+  }
+  const id = c.req.param("id");
+  try {
+    const result = await runTaskBreakdownAgent(id);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: "task-breakdown failed", detail: err instanceof Error ? err.message : String(err) }, 502);
+  }
+});
+
+// Commit a user-selected subset of the proposed tasks. Creates tasks atomically
+// with pre-populated enrichment rows so they show up correctly ranked + linked
+// to the milestone from the moment they're created (no waiting on the 5-min
+// enrichment loop).
+goalsApi.post("/monthly/:id/commit-tasks", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const tasks = Array.isArray(body.tasks) ? body.tasks : [];
+  if (tasks.length === 0) return c.json({ error: "no tasks to commit" }, 400);
+
+  const monthlyRow = db.prepare("SELECT id, title FROM goals_monthly WHERE id = :id").get({ id }) as
+    | { id: string; title: string } | undefined;
+  if (!monthlyRow) return c.json({ error: "monthly goal not found" }, 404);
+
+  try {
+    const created = commitTasksForMilestone(id, monthlyRow.title, tasks);
+    return c.json({ ok: true, created });
+  } catch (err) {
+    return c.json({ error: "commit failed", detail: err instanceof Error ? err.message : String(err) }, 500);
   }
 });
 

@@ -2050,6 +2050,30 @@ input, textarea {
   opacity: 0.85;
 }
 .goal-annual-card:hover .goal-breakdown-btn.has-data { opacity: 1; }
+
+/* "Break into tasks" tree icon on each monthly milestone row. Hover-only
+   like the inline delete X so the row reads clean at rest. */
+.monthly-break-tasks-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--muted-2);
+  cursor: pointer;
+  opacity: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.task-row:hover .monthly-break-tasks-btn { opacity: 0.7; }
+.monthly-break-tasks-btn:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: rgba(184, 68, 46, 0.12);
+}
 .goal-pct {
   font-weight: 600;
   color: var(--ink-2);

@@ -1081,6 +1081,176 @@ function monthToQuarter(month) {
   return map[month];
 }
 
+// TaskBreakdownModal — takes a monthly milestone, runs the task-breakdown
+// agent, lets the user review proposals + check the ones to commit. The
+// commit endpoint creates tasks atomically with primary_goal_id pre-set so
+// they show up correctly ranked + linked from the moment they exist.
+function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
+  const [phase, setPhase] = React.useState("loading"); // loading | review | committing | error
+  const [proposal, setProposal] = React.useState(null);
+  const [errorMsg, setErrorMsg] = React.useState("");
+  const [selected, setSelected] = React.useState(new Set());
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setPhase("loading");
+      try {
+        const r = await fetch(`/api/goals/monthly/${encodeURIComponent(monthly.id)}/break-into-tasks`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || body.error || `${r.status}`);
+        }
+        const data = await r.json();
+        if (cancelled) return;
+        setProposal(data);
+        // Default-select everything — user can uncheck what they don't want.
+        setSelected(new Set(data.tasks.map((_, i) => i)));
+        setPhase("review");
+      } catch (err) {
+        if (!cancelled) {
+          setErrorMsg(err.message || String(err));
+          setPhase("error");
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [monthly.id]);
+
+  const toggle = (i) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  };
+
+  const handleCommit = async () => {
+    if (!proposal || selected.size === 0) return;
+    setPhase("committing");
+    try {
+      const picks = proposal.tasks.filter((_, i) => selected.has(i));
+      const r = await fetch(`/api/goals/monthly/${encodeURIComponent(monthly.id)}/commit-tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tasks: picks }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || body.error || `${r.status}`);
+      }
+      onCommitted?.();
+    } catch (err) {
+      setErrorMsg(err.message || String(err));
+      setPhase("error");
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-breakdown" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-halftone" />
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+
+        <div className="modal-eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon.tree style={{ color: "var(--accent)" }} />
+          <span>Break into tasks</span>
+          {proposal?.parent?.annual && (
+            <span style={{ color: "var(--muted)" }}>
+              · ladders to {proposal.parent.annual.title}
+            </span>
+          )}
+        </div>
+        <h2 className="breakdown-annual-title">{monthly.title}</h2>
+        {monthly.nextStep && (
+          <div className="breakdown-annual-intent">Next step: {monthly.nextStep}</div>
+        )}
+
+        {phase === "loading" && (
+          <div className="breakdown-loading">
+            <div className="breakdown-spinner" />
+            <div>Thinking through concrete next-step tasks…</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 4 }}>
+              Adaptive thinking on Claude Opus 4.7 — usually 10–20 seconds.
+            </div>
+          </div>
+        )}
+
+        {phase === "error" && (
+          <div className="breakdown-error">
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Couldn't generate tasks.</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{errorMsg}</div>
+            <button className="rec-pull" style={{ marginTop: 14, marginLeft: 0 }} onClick={onClose}>
+              Close
+            </button>
+          </div>
+        )}
+
+        {(phase === "review" || phase === "committing") && proposal && (
+          <>
+            <div className="breakdown-section-label">
+              Tasks for this milestone · {proposal.tasks.length} proposed
+            </div>
+            <div className="breakdown-list">
+              {proposal.tasks.map((t, i) => (
+                <TaskProposalCard
+                  key={i}
+                  task={t}
+                  checked={selected.has(i)}
+                  onToggle={() => toggle(i)}
+                />
+              ))}
+            </div>
+
+            <div className="breakdown-actions">
+              <div style={{ flex: 1, fontSize: 11.5, color: "var(--muted)" }}>
+                Selected tasks land in <b>This week</b> and ladder to this milestone automatically.
+              </div>
+              <button
+                className="rec-pull"
+                onClick={handleCommit}
+                disabled={selected.size === 0 || phase === "committing"}
+                style={{ alignSelf: "flex-end", marginLeft: 0 }}>
+                {phase === "committing"
+                  ? "Committing…"
+                  : selected.size === 0
+                  ? "Select at least one"
+                  : `Commit ${selected.size} task${selected.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TaskProposalCard({ task, checked, onToggle }) {
+  return (
+    <label className={`breakdown-card ${checked ? "checked" : ""}`}>
+      <input type="checkbox" checked={checked} onChange={onToggle} />
+      <div className="breakdown-card-body">
+        <div className="breakdown-card-head">
+          <span className="breakdown-card-label">{task.estimateMin}m</span>
+          {task.tag && <span className="breakdown-card-label-muted">{task.tag}</span>}
+          {task.due && (
+            <span className="breakdown-card-label-muted" style={{ color: "var(--accent-4)" }}>
+              due {task.due}
+            </span>
+          )}
+        </div>
+        <div className="breakdown-card-title">{task.title}</div>
+        {task.note && <div className="breakdown-card-target">→ {task.note}</div>}
+        {task.reasoning && <div className="breakdown-card-reasoning">{task.reasoning}</div>}
+      </div>
+    </label>
+  );
+}
+
 // ContextModal — small focused editor for the per-goal "context for the agent"
 // field. Opened from the notes-icon button on each annual goal card. Saves
 // on commit; doesn't auto-save on close so the user can cancel via Escape.
@@ -1156,6 +1326,8 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
   const [breakdownAnnual, setBreakdownAnnual] = React.useState(null);
   // The annual goal whose agent-context is being edited (modal target).
   const [contextAnnual, setContextAnnual] = React.useState(null);
+  // The monthly milestone being broken down into tasks (modal target).
+  const [taskBreakdownMonthly, setTaskBreakdownMonthly] = React.useState(null);
 
   const patchGoal = async (horizon, id, patch) => {
     setLocal(prev => ({
@@ -1405,6 +1577,12 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
                   <span className="goal-pct mono">
                     <EditablePercent value={g.progress} onCommit={(v) => patchGoal("monthly", g.id, { progress: v })} />
                   </span>
+                  <button
+                    className="monthly-break-tasks-btn"
+                    title="Break this monthly milestone into tasks with an LLM"
+                    onClick={() => setTaskBreakdownMonthly(g)}>
+                    <Icon.tree />
+                  </button>
                   <button className="goal-delete-inline" title="Delete" onClick={() => deleteGoal("monthly", g.id)}>×</button>
                 </div>
               </div>
@@ -1412,6 +1590,17 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
           })}
         </div>
       </section>
+
+      {taskBreakdownMonthly && (
+        <TaskBreakdownModal
+          monthly={taskBreakdownMonthly}
+          onClose={() => setTaskBreakdownMonthly(null)}
+          onCommitted={() => {
+            setTaskBreakdownMonthly(null);
+            onGoalsChange?.();
+          }}
+        />
+      )}
     </main>
   );
 }
