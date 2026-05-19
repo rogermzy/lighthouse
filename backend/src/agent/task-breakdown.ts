@@ -16,6 +16,18 @@ type AnnualRow = {
 type ExistingTask = {
   id: string; title: string; note: string | null; lane: string;
 };
+type CandidateTask = {
+  id: string; title: string; project: string | null;
+  theme: string | null; weight: number | null; lane: string;
+};
+
+export type ExistingTaskLink = {
+  id: string;
+  title: string;
+  project: string | null;
+  lane: string;
+  reasoning: string;
+};
 
 const VALID_TAGS = ["deep", "shallow", "admin", "comms", "personal", "errand"] as const;
 type Tag = typeof VALID_TAGS[number];
@@ -38,7 +50,11 @@ export type TaskBreakdownResult = {
     quarterly?: { id: string; title: string };
     annual?:    { id: string; title: string };
   };
+  // New tasks proposed by the agent (user accepts → created).
   tasks: TaskProposal[];
+  // Existing tasks the agent thinks already contribute to this milestone
+  // (user accepts → link via primary_goal_id, no new tasks created).
+  relatedExisting: ExistingTaskLink[];
 };
 
 export function isTaskBreakdownConfigured(): boolean {
@@ -48,7 +64,7 @@ export function isTaskBreakdownConfigured(): boolean {
 const TASK_BREAKDOWN_TOOL: Anthropic.Tool = {
   name: "return_tasks",
   description:
-    "Return 3 to 7 concrete, action-verb-starting tasks the user could ship in the time remaining for this monthly milestone. Each task should be small enough that 'done' is unambiguous and the user could finish it in one sitting.",
+    "Return (a) 3-7 NEW concrete tasks for this milestone, AND (b) any EXISTING tasks from the candidate list that already contribute to this milestone (so the user can link them with one click instead of duplicating work).",
   input_schema: {
     type: "object",
     properties: {
@@ -96,26 +112,52 @@ const TASK_BREAKDOWN_TOOL: Anthropic.Tool = {
           required: ["title", "note", "estimate_min", "tag", "due", "reasoning"],
         },
       },
+      related_existing: {
+        type: "array",
+        description:
+          "IDs of EXISTING tasks (from the candidate list in the user message) that already contribute to this milestone. Only include tasks that genuinely ladder to this goal — don't be loose. Empty array if nothing in the candidate list applies.",
+        items: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Exact task id from the candidate list. Must match — anything else is dropped.",
+            },
+            reasoning: {
+              type: "string",
+              description: "≤ 20 words: how does this existing task contribute to the milestone?",
+            },
+          },
+          required: ["id", "reasoning"],
+        },
+      },
     },
-    required: ["tasks"],
+    required: ["tasks", "related_existing"],
   },
 };
 
 const SYSTEM_PROMPT = `You are the planning brain inside Lighthouse, breaking a monthly goal into concrete actionable tasks.
 
-Your job: take a single monthly milestone and propose 3-7 concrete next-step tasks the user can ship in the time remaining. The user reviews and checks the ones they want to commit.
+Your job has TWO parts:
 
-Principles:
-- Action-verb-starting titles. "Draft", "Send", "Set up", "Review", "Write", "Call", "Book". Never "plan to X" or "think about Y".
-- Each task should be small enough that 'done' is unambiguous in one sitting. If something would take more than 90 minutes, split it.
-- Order matters: propose tasks in dependency order (the thing you have to do first comes first).
-- Match the user's actual situation (you have their About-me context + the goal's own context). Don't propose tasks that assume team / budget / tools they don't have.
-- Be specific. "Email Maya about Friday demo" beats "follow up on demo." Specificity is what makes tasks actually shippable.
-- Avoid corporate filler ("alignment", "synergize", "leverage"). Write the way a thoughtful friend would describe the next step.
+PART A — Propose 3-7 NEW concrete next-step tasks for this milestone.
+  - Action-verb-starting titles ("Draft", "Ship", "Send"). Never "plan to X".
+  - Each small enough that 'done' is unambiguous in one sitting.
+  - Order in dependency sequence: the thing you must do first comes first.
+  - Match the user's situation via their About-me + goal-context inputs.
+  - Avoid duplicating tasks that already exist (you'll see those listed).
 
-If the user has already created tasks for this milestone, DON'T propose duplicates — propose things that complement what's there.
+PART B — Scan the candidate-task list. Identify any EXISTING tasks that already
+contribute to this milestone but aren't yet linked (no primary_goal_id, or
+linked to a different goal). Return their IDs in \`related_existing\`. The
+user reviews and one-clicks "link" instead of creating duplicate work.
 
-Always call return_tasks exactly once. Do not ask clarifying questions — work with what you have.`;
+Be CONSERVATIVE on Part B: only include a candidate if you're confident it
+genuinely ladders to this milestone. False positives create clutter. When in
+doubt, leave it out — the user can manually link later.
+
+Always call return_tasks exactly once with both \`tasks\` and \`related_existing\`
+(can be empty). Do not ask clarifying questions.`;
 
 function pickMonthly(id: string): MonthlyRow | undefined {
   return db.prepare("SELECT * FROM goals_monthly WHERE id = :id").get({ id }) as MonthlyRow | undefined;
@@ -143,6 +185,25 @@ function pickExistingTasks(monthlyId: string): ExistingTask[] {
   `).all({ id: monthlyId }) as ExistingTask[];
 }
 
+// Candidate pool: open tasks NOT already linked to this milestone. Capped
+// at 50 by weight desc so the prompt doesn't bloat for users with hundreds
+// of tasks. The agent decides which of these (if any) actually ladder to
+// the milestone. Anything below 0.3 weight is unlikely to be a real
+// contributor — exclude to keep signal high.
+function pickCandidateTasks(monthlyId: string): CandidateTask[] {
+  return db.prepare(`
+    SELECT t.id, t.title, t.project, t.lane, e.theme, e.weight
+    FROM tasks t
+    LEFT JOIN task_enrichment e ON e.task_id = t.id
+    WHERE t.done_at IS NULL
+      AND t.lane != 'now'
+      AND (e.primary_goal_id IS NULL OR e.primary_goal_id != :id)
+      AND (e.weight IS NULL OR e.weight >= 0.3)
+    ORDER BY (e.weight IS NULL), e.weight DESC, t.created_at DESC
+    LIMIT 50
+  `).all({ id: monthlyId }) as CandidateTask[];
+}
+
 function daysRemainingInMonth(now: Date): number {
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   return Math.max(0, Math.ceil((endOfMonth.getTime() - now.getTime()) / 86_400_000));
@@ -162,6 +223,7 @@ export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBrea
     : pickAnnual(monthly.parent);
 
   const existingTasks = pickExistingTasks(monthlyId);
+  const candidateTasks = pickCandidateTasks(monthlyId);
   const profileContext = getProfileContext();
 
   const now = new Date();
@@ -169,7 +231,14 @@ export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBrea
   const weeksLeft = Math.max(1, Math.round(daysLeft / 7));
 
   const existingBlock = existingTasks.length > 0
-    ? `\nAlready-created tasks for this milestone (DO NOT duplicate):\n${existingTasks.map((t) => `- "${t.title}" (lane: ${t.lane})`).join("\n")}`
+    ? `\nAlready-linked tasks for this milestone (DO NOT duplicate, DO NOT include in related_existing):\n${existingTasks.map((t) => `- "${t.title}" (lane: ${t.lane})`).join("\n")}`
+    : "";
+
+  const candidateBlock = candidateTasks.length > 0
+    ? `\nCandidate existing tasks (any that already contribute to this milestone? List their IDs in related_existing. Be conservative — only confident matches):\n${candidateTasks.map((t) => {
+        const meta = [t.project, t.theme, t.weight != null ? `weight ${t.weight.toFixed(2)}` : null].filter(Boolean).join(" · ");
+        return `- id: ${t.id} — "${t.title}"${meta ? ` [${meta}]` : ""}`;
+      }).join("\n")}`
     : "";
 
   const userMessage = [
@@ -188,8 +257,11 @@ export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBrea
     monthly.next_step ? `  Next step (user's note): ${monthly.next_step}` : null,
     `  Progress so far: ${Math.round(monthly.progress * 100)}%`,
     existingBlock,
+    candidateBlock,
     ``,
-    `Propose 3-7 concrete tasks the user could ship in the ${daysLeft} days remaining this month. Action-verb-starting titles, specific scope, dependency-ordered.`,
+    `Two outputs required:`,
+    `  1) tasks: 3-7 NEW concrete tasks for this milestone (action-verb-starting, dependency-ordered, scoped to ${daysLeft} days).`,
+    `  2) related_existing: array of candidate task ids that already contribute to this milestone (or empty if none).`,
   ]
     .filter((l) => l !== null)
     .join("\n");
@@ -212,14 +284,15 @@ export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBrea
 
   // Defensive parse — same pattern as the goal breakdown agent.
   const rawInput = toolUse.input as Record<string, unknown> | null | undefined;
-  let parsed: { tasks?: unknown } = rawInput ?? {};
+  let parsed: { tasks?: unknown; related_existing?: unknown } = rawInput ?? {};
   if (typeof parsed === "string") {
     try { parsed = JSON.parse(parsed); } catch { parsed = {}; }
   }
   const rawTasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
-  if (rawTasks.length === 0) {
+  const rawRelated = Array.isArray(parsed.related_existing) ? parsed.related_existing : [];
+  if (rawTasks.length === 0 && rawRelated.length === 0) {
     console.warn("[task-breakdown] empty/malformed tool input:", JSON.stringify(rawInput).slice(0, 600));
-    throw new Error("agent returned no task proposals");
+    throw new Error("agent returned no task proposals or related existing tasks");
   }
 
   const tasks: TaskProposal[] = (rawTasks as Array<{
@@ -233,6 +306,24 @@ export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBrea
     reasoning: String(t.reasoning || "").trim(),
   })).filter((t) => t.title.length > 0);
 
+  // Resolve related_existing IDs back to the candidate-task data so the
+  // modal can show titles/projects/lanes for the user to review. Drop any
+  // hallucinated IDs (not in the candidate list) — anti-confabulation.
+  const candidateById = new Map(candidateTasks.map((c) => [c.id, c]));
+  const relatedExisting: ExistingTaskLink[] = (rawRelated as Array<{ id: string; reasoning: string }>)
+    .map((r) => {
+      const cand = candidateById.get(String(r.id));
+      if (!cand) return null;
+      return {
+        id: cand.id,
+        title: cand.title,
+        project: cand.project,
+        lane: cand.lane,
+        reasoning: String(r.reasoning || "").trim(),
+      };
+    })
+    .filter((x): x is ExistingTaskLink => x !== null);
+
   return {
     monthly: { id: monthly.id, title: monthly.title },
     parent: {
@@ -240,6 +331,7 @@ export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBrea
       annual:    annualParent    ? { id: annualParent.id,    title: annualParent.title    } : undefined,
     },
     tasks,
+    relatedExisting,
   };
 }
 
@@ -271,11 +363,16 @@ export type TaskToCommit = {
   reasoning: string;
 };
 
+const selectExistingEnrichment = db.prepare(
+  "SELECT theme, weight, reasoning FROM task_enrichment WHERE task_id = :task_id"
+);
+
 export function commitTasksForMilestone(
   monthlyId: string,
   monthlyTitle: string,
   picks: TaskToCommit[],
-): string[] {
+  linkExistingIds: string[] = [],
+): { created: string[]; linked: string[] } {
   const now = new Date().toISOString();
   const created: string[] = [];
   for (const t of picks) {
@@ -305,5 +402,26 @@ export function commitTasksForMilestone(
     });
     created.push(id);
   }
-  return created;
+
+  // Link existing tasks to this milestone by writing primary_goal_id to
+  // their enrichment record (creating one if missing). Preserves theme +
+  // weight from any prior enrichment so we don't blow away the agent's
+  // earlier classification — only the goal-link is updated.
+  const linked: string[] = [];
+  for (const taskId of linkExistingIds) {
+    const prior = selectExistingEnrichment.get({ task_id: taskId }) as
+      | { theme: string | null; weight: number | null; reasoning: string | null } | undefined;
+    upsertEnrichment.run({
+      task_id: taskId,
+      theme: prior?.theme || monthlyTitle,
+      primary_goal_id: monthlyId,
+      weight: prior?.weight ?? 0.6,  // keep prior signal; fallback to mid weight
+      reasoning: prior?.reasoning || `Linked to milestone: ${monthlyTitle}`,
+      hash: `linked-${taskId}-${monthlyId}`,
+      enriched_at: now,
+    });
+    linked.push(taskId);
+  }
+
+  return { created, linked };
 }

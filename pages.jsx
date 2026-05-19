@@ -1090,7 +1090,10 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
   const [phase, setPhase] = React.useState("loading"); // loading | review | committing | error
   const [proposal, setProposal] = React.useState(null);
   const [errorMsg, setErrorMsg] = React.useState("");
+  // Selected NEW tasks (indices into proposal.tasks) and selected EXISTING
+  // tasks to link (ids from proposal.relatedExisting).
   const [selected, setSelected] = React.useState(new Set());
+  const [selectedExisting, setSelectedExisting] = React.useState(new Set());
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1109,8 +1112,10 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
         const data = await r.json();
         if (cancelled) return;
         setProposal(data);
-        // Default-select everything — user can uncheck what they don't want.
+        // Default-select all new tasks AND all agent-flagged existing links —
+        // user unchecks what doesn't apply.
         setSelected(new Set(data.tasks.map((_, i) => i)));
+        setSelectedExisting(new Set((data.relatedExisting || []).map((x) => x.id)));
         setPhase("review");
       } catch (err) {
         if (!cancelled) {
@@ -1129,16 +1134,26 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
       return next;
     });
   };
+  const toggleExisting = (id) => {
+    setSelectedExisting(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const totalSelected = selected.size + selectedExisting.size;
 
   const handleCommit = async () => {
-    if (!proposal || selected.size === 0) return;
+    if (!proposal || totalSelected === 0) return;
     setPhase("committing");
     try {
       const picks = proposal.tasks.filter((_, i) => selected.has(i));
+      const linkExistingIds = [...selectedExisting];
       const r = await fetch(`/api/goals/monthly/${encodeURIComponent(monthly.id)}/commit-tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tasks: picks }),
+        body: JSON.stringify({ tasks: picks, linkExistingIds }),
       });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
@@ -1193,8 +1208,26 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
 
         {(phase === "review" || phase === "committing") && proposal && (
           <>
+            {(proposal.relatedExisting || []).length > 0 && (
+              <>
+                <div className="breakdown-section-label">
+                  Existing tasks the agent thinks already ladder here · {proposal.relatedExisting.length}
+                </div>
+                <div className="breakdown-list">
+                  {proposal.relatedExisting.map((t) => (
+                    <ExistingLinkCard
+                      key={t.id}
+                      task={t}
+                      checked={selectedExisting.has(t.id)}
+                      onToggle={() => toggleExisting(t.id)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
             <div className="breakdown-section-label">
-              Tasks for this milestone · {proposal.tasks.length} proposed
+              New tasks for this milestone · {proposal.tasks.length} proposed
             </div>
             <div className="breakdown-list">
               {proposal.tasks.map((t, i) => (
@@ -1209,24 +1242,41 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
 
             <div className="breakdown-actions">
               <div style={{ flex: 1, fontSize: 11.5, color: "var(--muted)" }}>
-                Selected tasks land in <b>This week</b> and ladder to this milestone automatically.
+                New tasks land in <b>This week</b>. Existing tasks get linked to this milestone in place — no duplicates.
               </div>
               <button
                 className="rec-pull"
                 onClick={handleCommit}
-                disabled={selected.size === 0 || phase === "committing"}
+                disabled={totalSelected === 0 || phase === "committing"}
                 style={{ alignSelf: "flex-end", marginLeft: 0 }}>
                 {phase === "committing"
                   ? "Committing…"
-                  : selected.size === 0
+                  : totalSelected === 0
                   ? "Select at least one"
-                  : `Commit ${selected.size} task${selected.size === 1 ? "" : "s"}`}
+                  : `Commit ${totalSelected}${selectedExisting.size > 0 ? ` (${selected.size} new, ${selectedExisting.size} linked)` : selected.size === 1 ? " task" : " tasks"}`}
               </button>
             </div>
           </>
         )}
       </div>
     </div>
+  );
+}
+
+function ExistingLinkCard({ task, checked, onToggle }) {
+  return (
+    <label className={`breakdown-card existing-link ${checked ? "checked" : ""}`}>
+      <input type="checkbox" checked={checked} onChange={onToggle} />
+      <div className="breakdown-card-body">
+        <div className="breakdown-card-head">
+          <span className="breakdown-card-label">EXISTING</span>
+          {task.lane && <span className="breakdown-card-label-muted">{task.lane.replace("_", " ")}</span>}
+          {task.project && <span className="breakdown-card-label-muted">{task.project}</span>}
+        </div>
+        <div className="breakdown-card-title">{task.title}</div>
+        {task.reasoning && <div className="breakdown-card-reasoning">{task.reasoning}</div>}
+      </div>
+    </label>
   );
 }
 

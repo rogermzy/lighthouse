@@ -227,15 +227,18 @@ goalsApi.post("/monthly/:id/commit-tasks", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json().catch(() => ({}));
   const tasks = Array.isArray(body.tasks) ? body.tasks : [];
-  if (tasks.length === 0) return c.json({ error: "no tasks to commit" }, 400);
+  const linkExistingIds = Array.isArray(body.linkExistingIds) ? body.linkExistingIds.filter((x: unknown) => typeof x === "string") : [];
+  if (tasks.length === 0 && linkExistingIds.length === 0) {
+    return c.json({ error: "nothing to commit — no new tasks and no existing links" }, 400);
+  }
 
   const monthlyRow = db.prepare("SELECT id, title FROM goals_monthly WHERE id = :id").get({ id }) as
     | { id: string; title: string } | undefined;
   if (!monthlyRow) return c.json({ error: "monthly goal not found" }, 404);
 
   try {
-    const created = commitTasksForMilestone(id, monthlyRow.title, tasks);
-    return c.json({ ok: true, created });
+    const result = commitTasksForMilestone(id, monthlyRow.title, tasks, linkExistingIds);
+    return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json({ error: "commit failed", detail: err instanceof Error ? err.message : String(err) }, 500);
   }

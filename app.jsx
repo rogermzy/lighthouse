@@ -102,6 +102,14 @@ const Icon = {
       <path d="M6 6h6M6 9h6M6 12h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   ),
+  // Flag on a pole — marks tasks/groups that ladder to a committed goal.
+  // Compact at small sizes so it can sit beside a title without crowding.
+  milestone: (p) => (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" {...p}>
+      <path d="M3.5 1.5v11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      <path d="M3.5 2.2h7.5l-1.7 2.3 1.7 2.3H3.5z" fill="currentColor"/>
+    </svg>
+  ),
 };
 
 /* ─────────────────────── helpers ─────────────────────── */
@@ -613,6 +621,11 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
               </button>
               <div className="task-main">
                 <div className="task-title">
+                  {t.primaryGoalId && (
+                    <span className="row-milestone-flag" title="Ladders to a milestone">
+                      <Icon.milestone />
+                    </span>
+                  )}
                   {t.title}
                   {t.bigRock && (
                     <span className="chip" style={{ background: "var(--accent)", color: "#fbf8f1", borderColor: "transparent", fontSize: 10 }}>
@@ -865,7 +878,11 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
           <div key={theme} className={`ondeck-theme ${isMilestone ? "milestone-group" : ""}`}>
             <div className="ondeck-theme-head">
               <span className="ondeck-theme-name">
-                {isMilestone && <span className="milestone-eyebrow">↳ MILESTONE</span>}
+                {isMilestone && (
+                  <span className="milestone-eyebrow" title="Milestone">
+                    <Icon.milestone />
+                  </span>
+                )}
                 {theme}
               </span>
               <span className="ondeck-theme-meta">{themeTasks.length}</span>
