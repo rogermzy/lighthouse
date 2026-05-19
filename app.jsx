@@ -1683,23 +1683,43 @@ function App() {
   }, [refreshTasks]);
 
   const triageInbox = async (id, where) => {
-    // Capture title BEFORE the optimistic remove — used in the cap modal copy.
-    const sourceItem = tasks.find(t => t.id === id);
-    const triageFetch = () =>
+    const triageFetch = (target) =>
       fetch(`/api/inbox/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ triaged_to: where }),
+        body: JSON.stringify({ triaged_to: target }),
       });
 
     setTasks(prev => prev.filter(t => t.id !== id));
     try {
-      const res = await triageFetch();
+      let res = await triageFetch(where);
+      // If user wanted "today" but the cap is full, auto-route to Up Next
+      // instead — triage as "later" (which lands in this_week), then pin
+      // the created task so it sits at the top of the Up Next queue.
+      // Matches the patchLane fallback for other promote-to-today paths;
+      // brain dump triage is the same lighter-touch "send this toward
+      // action" gesture, not a deliberate Today-three commitment.
       if (res.status === 409 && where === "today") {
-        setCapModal({
-          newItemTitle: sourceItem?.title || "this task",
-          retry: triageFetch,
-        });
+        const r2 = await triageFetch("later");
+        if (r2.ok) {
+          const body = await r2.json().catch(() => ({}));
+          const newId = body.createdTaskId;
+          let pinToast = "Today is full — queued in Up Next instead.";
+          if (newId) {
+            const pinRes = await fetch(`/api/tasks/${encodeURIComponent(newId)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pinned: true }),
+            });
+            if (!pinRes.ok) {
+              const pb = await pinRes.json().catch(() => ({}));
+              if (pb.error === "pin_cap_full") {
+                pinToast = "Today is full — moved to This week (5 pinned already, can't add another).";
+              }
+            }
+          }
+          setToast({ kind: "warn", text: pinToast });
+        }
       }
     } catch (err) {
       console.warn("triageInbox failed:", err);
