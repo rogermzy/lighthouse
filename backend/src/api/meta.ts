@@ -6,7 +6,11 @@ import { Hono } from "hono";
 const LANES   = ["now", "today", "this_week", "this_month", "backlog"];
 const SOURCES = ["clickup", "workflowy", "linear", "things", "notion", "email", "gcal", "gtasks", "self", "agent"];
 const TAGS    = ["deep", "shallow", "admin", "comms", "personal", "errand"];
-const MOODS   = ["calm", "focused", "scattered", "drained", "buzzy", "low"];
+const MOODS   = [
+  "calm", "focused", "content", "curious", "inspired", "proud",
+  "buzzy", "scattered", "frustrated", "anxious", "overwhelmed",
+  "drained", "low",
+];
 const DUE_KEYWORDS = [
   "today", "tomorrow", "soon", "this week", "next week",
   "mon", "tue", "wed", "thu", "fri", "sat", "sun",

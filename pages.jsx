@@ -2692,7 +2692,9 @@ function DemoteModal({ open, newItemTitle, todayTasks, onPick, onCancel, busy })
    ───────────────────────────────────────────────────────────── */
 function JournalPage({ entries, streak, startOfTodayMs, onAddEntry, onEditEntry, onDeleteEntry, selectedDate, onSelectDate }) {
   const [text, setText] = React.useState("");
-  const [mood, setMood] = React.useState("focused");
+  // Default to calm — softer landing than committing to a high-arousal
+  // state at the start of a journal entry. User reclassifies before save.
+  const [mood, setMood] = React.useState("calm");
   const [now, setNow]   = React.useState(new Date());
 
   // Local YYYY-MM-DD for "today" — used to detect when the rail-selected day
@@ -3087,7 +3089,7 @@ const API_ENUMS = [
   { label: "lane",   values: ["now", "today", "this_week", "this_month", "backlog"] },
   { label: "source", values: ["clickup", "workflowy", "linear", "things", "notion", "email", "gcal", "self", "agent"] },
   { label: "tag",    values: ["deep", "shallow", "admin", "comms", "personal", "errand"] },
-  { label: "mood",   values: ["calm", "focused", "scattered", "drained", "buzzy", "low"] },
+  { label: "mood",   values: ["calm", "focused", "content", "curious", "inspired", "proud", "buzzy", "scattered", "frustrated", "anxious", "overwhelmed", "drained", "low"] },
 ];
 
 const API_ERRORS = [

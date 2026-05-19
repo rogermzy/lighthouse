@@ -5,13 +5,23 @@ type EntryRow = { id: string; mood: string; note: string; created_at: string; so
 
 // Canonical mood palette. Frontend fetches this via GET /api/journal so the
 // two ends can't drift — add a mood here and the chips update on next page load.
+// Ordered loosely by valence: settled → activated-positive → activated-negative
+// → depleted. Default mood on new entries is "calm" (first slot) — softer
+// landing than picking "focused" upfront.
 const MOODS = [
-  { id: "calm",      label: "calm",      color: "#4e6a55" },
-  { id: "focused",   label: "focused",   color: "#5e6ad2" },
-  { id: "scattered", label: "scattered", color: "#b8442e" },
-  { id: "drained",   label: "drained",   color: "#806b5b" },
-  { id: "buzzy",     label: "buzzy",     color: "#8a7530" },
-  { id: "low",       label: "low",       color: "#b86b8e" },
+  { id: "calm",         label: "calm",         color: "#4e6a55" },
+  { id: "focused",      label: "focused",      color: "#5e6ad2" },
+  { id: "content",      label: "content",      color: "#4a857a" },
+  { id: "curious",      label: "curious",      color: "#7ca94a" },
+  { id: "inspired",     label: "inspired",     color: "#9b6bb0" },
+  { id: "proud",        label: "proud",        color: "#c89c4a" },
+  { id: "buzzy",        label: "buzzy",        color: "#8a7530" },
+  { id: "scattered",    label: "scattered",    color: "#b8442e" },
+  { id: "frustrated",   label: "frustrated",   color: "#a8431b" },
+  { id: "anxious",      label: "anxious",      color: "#6b5a8a" },
+  { id: "overwhelmed",  label: "overwhelmed",  color: "#943a55" },
+  { id: "drained",      label: "drained",      color: "#806b5b" },
+  { id: "low",          label: "low",          color: "#b86b8e" },
 ] as const;
 const VALID_MOODS = new Set(MOODS.map((m) => m.id));
 
