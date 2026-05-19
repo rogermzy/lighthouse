@@ -294,6 +294,81 @@ input, textarea {
   border-color: var(--ink-2);
   background: var(--paper-2);
 }
+
+/* View toggle on the Tasks page (segmented control: By goal | By lane).
+   Two buttons share a border so the boundary reads as a single component.
+   Active button gets ink background + cream text, inactive is muted. */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-toggle-btn {
+  appearance: none;
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.view-toggle-btn:hover:not(.active) {
+  color: var(--ink);
+  background: var(--paper-2);
+}
+.view-toggle-btn.active {
+  background: var(--ink);
+  color: #fbf8f1;
+}
+.view-toggle-btn + .view-toggle-btn { border-left: 1px solid var(--rule); }
+
+/* Goal-grouped Tasks view — section per annual goal, subsections per
+   monthly milestone within it. Subhead is a slim row identifying the
+   milestone with horizon eyebrow + task count. */
+.goal-tasks-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.goal-tasks-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+}
+.goal-tasks-subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 2px 4px;
+}
+.goal-tasks-horizon {
+  font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-4);
+}
+.goal-tasks-subname {
+  font-family: var(--font-display, "Playfair Display"), Georgia, serif;
+  font-size: 14px;
+  font-weight: 600;
+  font-style: italic;
+  color: var(--ink-2);
+  flex: 1;
+}
+.goal-tasks-subcount {
+  font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-2);
+  letter-spacing: 0.04em;
+}
 .search {
   display: flex;
   align-items: center;

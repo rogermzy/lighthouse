@@ -440,8 +440,10 @@ function TasksPage({
   inbox, triage, addInboxItem,
   weekSlot,
   thisMonthTasks, backlogTasks,
+  allTasks, goals,
   toggleDone, doneSet, onOpenDetail, onChangeLane,
   hideCompleted, onToggleHideCompleted,
+  view, onSetView,
 }) {
   const [draft, setDraft] = useState("");
   const [filter, setFilter] = useState("all");
@@ -473,6 +475,20 @@ function TasksPage({
           </h1>
         </div>
         <div className="topbar-actions">
+          <div className="view-toggle" role="group" aria-label="Tasks view">
+            <button
+              className={`view-toggle-btn ${view === "byGoal" ? "active" : ""}`}
+              onClick={() => onSetView("byGoal")}
+              title="Group tasks by the goal they contribute to">
+              By goal
+            </button>
+            <button
+              className={`view-toggle-btn ${view === "byLane" ? "active" : ""}`}
+              onClick={() => onSetView("byLane")}
+              title="Group tasks by lane (This week / This month / Backlog)">
+              By lane
+            </button>
+          </div>
           <button
             className="hide-completed-toggle"
             onClick={onToggleHideCompleted}
@@ -558,53 +574,225 @@ function TasksPage({
         </div>
       </section>
 
-      {/* ─── This week (rendered by parent — uses OnDeck from app.jsx) ─── */}
-      <div style={{ marginTop: 28 }}>{weekSlot}</div>
+      {view === "byGoal" ? (
+        <GoalGroupedTasks
+          tasks={allTasks || []}
+          goals={goals}
+          doneSet={doneSet}
+          toggleDone={toggleDone}
+          onOpenDetail={onOpenDetail}
+          onChangeLane={onChangeLane}
+        />
+      ) : (
+        <>
+          {/* ─── This week (rendered by parent — uses OnDeck from app.jsx) ─── */}
+          <div style={{ marginTop: 28 }}>{weekSlot}</div>
 
-      {/* ─── This month (lighter, no theme groupings) ─── */}
-      <LaneListSection
-        title="This month"
-        sub="Soonish. Items here decay to Backlog after 30 days untouched."
-        tasks={thisMonthTasks}
-        doneSet={doneSet}
-        toggleDone={toggleDone}
-        onOpenDetail={onOpenDetail}
-        onChangeLane={onChangeLane}
-        emptyText="Empty for now. Newly-synced tasks land here after the first triage decision."
-      />
-
-      {/* ─── Backlog (collapsed by default) ─── */}
-      <section style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 28 }}>
-        <div className="section-head">
-          <div>
-            <div className="section-title">Backlog</div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-              The holding pen. No timeline. Won't surface in recommendations.
-            </div>
-          </div>
-          <div className="section-meta">
-            <button
-              className="ondeck-reenrich"
-              onClick={() => setShowBacklog(s => !s)}>
-              {showBacklog ? "Hide" : `Show ${backlogTasks.length}`}
-            </button>
-          </div>
-        </div>
-        {showBacklog && (
+          {/* ─── This month (lighter, no theme groupings) ─── */}
           <LaneListSection
-            title=""
-            sub=""
-            tasks={backlogTasks}
+            title="This month"
+            sub="Soonish. Items here decay to Backlog after 30 days untouched."
+            tasks={thisMonthTasks}
             doneSet={doneSet}
             toggleDone={toggleDone}
             onOpenDetail={onOpenDetail}
             onChangeLane={onChangeLane}
-            emptyText="Backlog is empty."
+            emptyText="Empty for now. Newly-synced tasks land here after the first triage decision."
+          />
+
+          {/* ─── Backlog (collapsed by default) ─── */}
+          <section style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 28 }}>
+            <div className="section-head">
+              <div>
+                <div className="section-title">Backlog</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                  The holding pen. No timeline. Won't surface in recommendations.
+                </div>
+              </div>
+              <div className="section-meta">
+                <button
+                  className="ondeck-reenrich"
+                  onClick={() => setShowBacklog(s => !s)}>
+                  {showBacklog ? "Hide" : `Show ${backlogTasks.length}`}
+                </button>
+              </div>
+            </div>
+            {showBacklog && (
+              <LaneListSection
+                title=""
+                sub=""
+                tasks={backlogTasks}
+                doneSet={doneSet}
+                toggleDone={toggleDone}
+                onOpenDetail={onOpenDetail}
+                onChangeLane={onChangeLane}
+                emptyText="Backlog is empty."
+                hideHeader
+              />
+            )}
+          </section>
+        </>
+      )}
+    </main>
+  );
+}
+
+// GoalGroupedTasks — default Tasks view. Walks the goal tree and shows
+// one section per monthly milestone with its linked tasks. Goals with no
+// active tasks are hidden so the page isn't cluttered with empty cards.
+// Tasks without a primary_goal_id fall into the "Unlinked" section at
+// the bottom — these are usually freshly-synced items not yet triaged
+// against the goal hierarchy.
+function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onChangeLane }) {
+  const tasksByGoal = React.useMemo(() => {
+    const map = new Map();
+    const unlinked = [];
+    for (const t of (tasks || [])) {
+      if (t.primaryGoalId) {
+        if (!map.has(t.primaryGoalId)) map.set(t.primaryGoalId, []);
+        map.get(t.primaryGoalId).push(t);
+      } else {
+        unlinked.push(t);
+      }
+    }
+    // Sort tasks within each bucket by weight desc, then by lane (so this_week
+    // floats above this_month above backlog within a goal's task list).
+    const LANE_RANK = { now: 0, today: 1, this_week: 2, this_month: 3, backlog: 4 };
+    const sortFn = (a, b) => {
+      const dw = (b.weight ?? 0) - (a.weight ?? 0);
+      if (Math.abs(dw) > 0.02) return dw;
+      return (LANE_RANK[a.lane] ?? 5) - (LANE_RANK[b.lane] ?? 5);
+    };
+    for (const arr of map.values()) arr.sort(sortFn);
+    unlinked.sort(sortFn);
+    return { map, unlinked };
+  }, [tasks]);
+
+  // Build "monthly under annual" hierarchy for ordered rendering.
+  const sections = React.useMemo(() => {
+    const out = [];
+    const annuals = goals?.annual || [];
+    const quarterlies = goals?.quarterly || [];
+    const monthlies = goals?.monthly || [];
+    // Index for resolving parent chain (monthly → quarterly → annual)
+    const qById = new Map(quarterlies.map(q => [q.id, q]));
+    const aById = new Map(annuals.map(a => [a.id, a]));
+
+    // Walk annual goals in declaration order; within each, list monthly
+    // descendants in declaration order; tasks linked to quarterly directly
+    // or annual directly get their own subsections.
+    for (const annual of annuals) {
+      const annualMonthlies = monthlies.filter(m => {
+        const q = qById.get(m.parent);
+        return q ? q.parent === annual.id : m.parent === annual.id;
+      });
+      const sectionGoals = [];
+      for (const m of annualMonthlies) {
+        const linked = tasksByGoal.map.get(m.id) || [];
+        if (linked.length > 0) sectionGoals.push({ goal: m, horizon: "monthly", tasks: linked });
+      }
+      // Quarterly-direct tasks (rare but possible)
+      const annualQuarterlies = quarterlies.filter(q => q.parent === annual.id);
+      for (const q of annualQuarterlies) {
+        const linked = tasksByGoal.map.get(q.id) || [];
+        if (linked.length > 0) sectionGoals.push({ goal: q, horizon: "quarterly", tasks: linked });
+      }
+      // Annual-direct tasks (also rare)
+      const annualDirect = tasksByGoal.map.get(annual.id) || [];
+      if (annualDirect.length > 0) {
+        sectionGoals.push({ goal: annual, horizon: "annual", tasks: annualDirect });
+      }
+      if (sectionGoals.length > 0) {
+        out.push({ annual, sectionGoals });
+      }
+    }
+    return out;
+  }, [goals, tasksByGoal]);
+
+  const totalLinked = React.useMemo(
+    () => [...tasksByGoal.map.values()].reduce((n, arr) => n + arr.length, 0),
+    [tasksByGoal]
+  );
+
+  return (
+    <>
+      {sections.length === 0 && tasksByGoal.unlinked.length === 0 && (
+        <div className="empty-state" style={{ padding: "60px 20px", marginTop: 28 }}>
+          <div className="empty-state-icon" />
+          <div className="empty-state-title">No tasks yet.</div>
+          <div className="empty-state-sub">Sync a source or capture something in the brain dump above.</div>
+        </div>
+      )}
+
+      {sections.map(({ annual, sectionGoals }) => (
+        <section key={annual.id} className="goal-tasks-section" style={{ marginTop: 28 }}>
+          <div className="section-head">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span className="goal-color-bar" style={{ background: annual.color || "#5e6ad2", width: 20, height: 3 }} />
+              <div>
+                <div className="section-title">{annual.title}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                  {sectionGoals.reduce((n, g) => n + g.tasks.length, 0)} task{sectionGoals.reduce((n, g) => n + g.tasks.length, 0) === 1 ? "" : "s"} contributing
+                </div>
+              </div>
+            </div>
+          </div>
+          {sectionGoals.map(({ goal, horizon, tasks }) => (
+            <div key={goal.id} className="goal-tasks-subsection">
+              <div className="goal-tasks-subhead">
+                <span className="goal-tasks-horizon">{horizon}</span>
+                <span className="goal-tasks-subname">{goal.title}</span>
+                <span className="goal-tasks-subcount">{tasks.length}</span>
+              </div>
+              <LaneListSection
+                title=""
+                sub=""
+                tasks={tasks}
+                doneSet={doneSet}
+                toggleDone={toggleDone}
+                onOpenDetail={onOpenDetail}
+                onChangeLane={onChangeLane}
+                emptyText=""
+                hideHeader
+              />
+            </div>
+          ))}
+        </section>
+      ))}
+
+      {tasksByGoal.unlinked.length > 0 && (
+        <section className="goal-tasks-section" style={{ marginTop: 32 }}>
+          <div className="section-head">
+            <div>
+              <div className="section-title" style={{ color: "var(--muted)" }}>Unlinked</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                Tasks not yet tied to any goal. The enrichment agent may pick these up on the next pass; meanwhile, you can manually link via Goal-page breakdown.
+              </div>
+            </div>
+            <div className="section-meta">
+              <b>{tasksByGoal.unlinked.length}</b>
+            </div>
+          </div>
+          <LaneListSection
+            title=""
+            sub=""
+            tasks={tasksByGoal.unlinked}
+            doneSet={doneSet}
+            toggleDone={toggleDone}
+            onOpenDetail={onOpenDetail}
+            onChangeLane={onChangeLane}
+            emptyText=""
             hideHeader
           />
-        )}
-      </section>
-    </main>
+        </section>
+      )}
+
+      {totalLinked === 0 && tasksByGoal.unlinked.length === 0 && (
+        <div style={{ marginTop: 28, fontSize: 12, color: "var(--muted-2)", fontStyle: "italic" }}>
+          Once tasks are linked to your goals (via the Goal page's ✨ Break into tasks button, or as the enrichment agent classifies new syncs), they'll cluster here.
+        </div>
+      )}
+    </>
   );
 }
 

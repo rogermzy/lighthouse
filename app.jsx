@@ -1754,6 +1754,15 @@ function App() {
   useEffect(() => {
     localStorage.setItem("lighthouse.tasksHideCompleted", String(tasksHideCompleted));
   }, [tasksHideCompleted]);
+  // View mode on the Tasks page: "byGoal" (default) groups all tasks by
+  // their primary_goal_id; "byLane" shows the lane-based view (This week
+  // / This month / Backlog). Persisted to localStorage.
+  const [tasksView, setTasksView] = useState(() => {
+    return localStorage.getItem("lighthouse.tasksView") || "byGoal";
+  });
+  useEffect(() => {
+    localStorage.setItem("lighthouse.tasksView", tasksView);
+  }, [tasksView]);
   const stripDone = useCallback(
     (arr) => tasksHideCompleted ? arr.filter(t => !doneSet.has(t.id)) : arr,
     [tasksHideCompleted, doneSet],
@@ -1833,12 +1842,16 @@ function App() {
           }
           thisMonthTasks={stripDone(tasksByLane.this_month)}
           backlogTasks={stripDone(tasksByLane.backlog)}
+          allTasks={tasksHideCompleted ? tasks.filter(t => !doneSet.has(t.id)) : tasks}
+          goals={goals}
           toggleDone={toggleDone}
           doneSet={doneSet}
           onOpenDetail={openDetail}
           onChangeLane={patchLane}
           hideCompleted={tasksHideCompleted}
           onToggleHideCompleted={() => setTasksHideCompleted(v => !v)}
+          view={tasksView}
+          onSetView={setTasksView}
         />
       ) : activeView === "goals" ? (
         <GoalsPage
