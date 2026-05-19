@@ -1960,6 +1960,75 @@ function App() {
         open={suggestOpen}
         onClose={() => setSuggestOpen(false)}
         onAcceptAll={() => setSuggestOpen(false)}
+        onAccept={async (suggestion) => {
+          // Suggest agent returns either:
+          //   - a concrete existing task → promote it to Today (or This week
+          //     if Today is full)
+          //   - just a goal + reason   → create a new task titled with the
+          //     goal's nextStep, linked to the monthly via the breakdown
+          //     commit endpoint so primary_goal_id is set immediately.
+          try {
+            if (suggestion.task?.id) {
+              let r = await fetch(`/api/tasks/${encodeURIComponent(suggestion.task.id)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ lane: "today" }),
+              });
+              if (r.status === 409) {
+                // Today's full; fall back to This week so the action still
+                // lands somewhere actionable.
+                r = await fetch(`/api/tasks/${encodeURIComponent(suggestion.task.id)}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ lane: "this_week" }),
+                });
+                if (r.ok) {
+                  setToast({ kind: "warn", text: "Today is full — added to This week instead." });
+                }
+              }
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}));
+                setToast({ kind: "warn", text: body.message || `Couldn't add (${r.status}).` });
+                return { ok: false };
+              }
+              await refreshTasks();
+              return { ok: true };
+            }
+            // No existing task — use the milestone commit endpoint to create
+            // one with primary_goal_id pre-set. Lane: this_week by default
+            // (Today cap may bite); user can promote via drag or quick-lane.
+            const goalId = suggestion.goal?.id;
+            const title = suggestion.task?.title || suggestion.goal?.nextStep || suggestion.goal?.title;
+            if (!goalId || !title) {
+              setToast({ kind: "warn", text: "Suggestion missing goal/title — can't add." });
+              return { ok: false };
+            }
+            const r = await fetch(`/api/goals/monthly/${encodeURIComponent(goalId)}/commit-tasks`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tasks: [{
+                  title,
+                  note: suggestion.reason || "",
+                  estimateMin: 25,
+                  tag: "shallow",
+                  due: null,
+                  reasoning: suggestion.reason || "",
+                }],
+              }),
+            });
+            if (!r.ok) {
+              const body = await r.json().catch(() => ({}));
+              setToast({ kind: "warn", text: body.detail || body.error || `Couldn't add (${r.status}).` });
+              return { ok: false };
+            }
+            await refreshTasks();
+            return { ok: true };
+          } catch (err) {
+            setToast({ kind: "warn", text: String(err.message || err) });
+            return { ok: false };
+          }
+        }}
       />
 
       {toast && (

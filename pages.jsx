@@ -1683,16 +1683,22 @@ function GoalsPage({ onSuggest, goals, onGoalsChange, tasks, doneSet, toggleDone
 /* ─────────────────────────────────────────────────────────────
    Suggestion modal — shown when the user clicks "Suggest tasks"
    ───────────────────────────────────────────────────────────── */
-function SuggestionModal({ open, onClose, onAcceptAll }) {
+function SuggestionModal({ open, onClose, onAcceptAll, onAccept }) {
   const [suggestions, setSuggestions] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [source, setSource] = React.useState("agent");
+  // Per-row accept state: idx → "idle" | "adding" | "added" | "error"
+  const [rowState, setRowState] = React.useState({});
+  // All-three commit lock so the user can't double-fire while it's running.
+  const [acceptingAll, setAcceptingAll] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
     setSuggestions(null);
+    setRowState({});
+    setAcceptingAll(false);
     fetch("/api/suggest", { method: "POST", headers: { "Content-Type": "application/json" } })
       .then(async (r) => {
         if (!r.ok) throw new Error(`status ${r.status}`);
@@ -1760,7 +1766,24 @@ function SuggestionModal({ open, onClose, onAcceptAll }) {
                   <div className="suggest-reason">{s.reason}</div>
                 </div>
                 <div className="suggest-actions">
-                  <button className="suggest-accept">+ Add</button>
+                  <button
+                    className="suggest-accept"
+                    disabled={rowState[i] === "adding" || rowState[i] === "added" || acceptingAll}
+                    onClick={async () => {
+                      if (!onAccept) return;
+                      setRowState((r) => ({ ...r, [i]: "adding" }));
+                      try {
+                        const res = await onAccept(s);
+                        setRowState((r) => ({ ...r, [i]: res?.ok === false ? "error" : "added" }));
+                      } catch {
+                        setRowState((r) => ({ ...r, [i]: "error" }));
+                      }
+                    }}>
+                    {rowState[i] === "adding" ? "…" :
+                     rowState[i] === "added"  ? "✓ Added" :
+                     rowState[i] === "error"  ? "Retry" :
+                                                "+ Add"}
+                  </button>
                 </div>
               </div>
             );
@@ -1770,8 +1793,28 @@ function SuggestionModal({ open, onClose, onAcceptAll }) {
 
         <div className="modal-foot">
           <button className="modal-secondary" onClick={onClose}>Not now</button>
-          <button className="modal-primary" onClick={onAcceptAll} disabled={loading}>
-            Accept all three →
+          <button
+            className="modal-primary"
+            disabled={loading || acceptingAll || !suggestions || suggestions.length === 0}
+            onClick={async () => {
+              if (!onAccept || !suggestions) return;
+              setAcceptingAll(true);
+              // Sequential — each PATCH/POST does a refresh; serial keeps
+              // the Today-cap check honest (parallel could fail to enforce).
+              for (let i = 0; i < suggestions.length; i++) {
+                if (rowState[i] === "added") continue;
+                setRowState((r) => ({ ...r, [i]: "adding" }));
+                try {
+                  const res = await onAccept(suggestions[i]);
+                  setRowState((r) => ({ ...r, [i]: res?.ok === false ? "error" : "added" }));
+                } catch {
+                  setRowState((r) => ({ ...r, [i]: "error" }));
+                }
+              }
+              setAcceptingAll(false);
+              onAcceptAll?.();
+            }}>
+            {acceptingAll ? "Adding…" : "Accept all three →"}
           </button>
         </div>
       </div>
