@@ -1630,6 +1630,13 @@ function App() {
   // Generic lane mutation — used by Start Now, Step away, modal lane picker,
   // and recommendation pull. Centralizes error toast + refresh so individual
   // call sites stay one-liners.
+  //
+  // Special-case: when target is "today" and the cap is full, instead of
+  // failing the action, queue the task in this_week with a pin so it
+  // appears at the top of Up Next as the next-in-line. Falls back to
+  // unpinned this_week if the 5-pin cap is also full. Suggest's accept
+  // flow handles its own cap-handoff (DemoteModal), so it doesn't go
+  // through here for the today promotion.
   const patchLane = useCallback(async (id, lane, extra = {}) => {
     try {
       const r = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
@@ -1637,12 +1644,36 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lane, ...extra }),
       });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        setToast({ kind: "warn", text: body.message || `Couldn't change lane (${r.status}).` });
-        return false;
+      if (r.ok) return true;
+
+      const body = await r.json().catch(() => ({}));
+
+      if (r.status === 409 && lane === "today" && body.error === "today_full") {
+        // Queue in Up Next: this_week + pinned. If pin cap is also at
+        // 5, fall back to this_week alone — the task at least gets
+        // closer to action even if it can't claim a queue slot.
+        const tryQueue = async (withPin) => fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(withPin ? { lane: "this_week", pinned: true } : { lane: "this_week" }),
+        });
+        let r2 = await tryQueue(true);
+        let toastText = "Today is full — queued in Up Next instead.";
+        if (!r2.ok) {
+          const b2 = await r2.json().catch(() => ({}));
+          if (b2.error === "pin_cap_full") {
+            r2 = await tryQueue(false);
+            toastText = "Today is full — moved to This week (5 pinned already, can't add another).";
+          }
+        }
+        if (r2.ok) {
+          setToast({ kind: "warn", text: toastText });
+          return true;
+        }
       }
-      return true;
+
+      setToast({ kind: "warn", text: body.message || `Couldn't change lane (${r.status}).` });
+      return false;
     } catch (err) {
       console.warn("patchLane failed:", err);
       return false;
