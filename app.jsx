@@ -621,8 +621,8 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
               </button>
               <div className="task-main">
                 <div className="task-title">
-                  {t.primaryGoalId && (
-                    <span className="row-milestone-flag" title="Ladders to a milestone">
+                  {t.primaryGoalId && (t.weight ?? 0) >= MILESTONE_WEIGHT && (
+                    <span className="row-milestone-flag" title="Direct contributor to a milestone">
                       <Icon.milestone />
                     </span>
                   )}
@@ -741,6 +741,11 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
    ───────────────────────────────────────────────────────────── */
 const UNSORTED_THEME = "Awaiting triage";
 const BELOW_LINE = 0.3;
+// Threshold for treating a primary_goal_id link as a true milestone
+// association vs. the agent's loose "could-plausibly-ladder" tagging.
+// Tasks below this still keep their goal_id in the data, but render in
+// theme-grouped clusters and skip the milestone flag.
+const MILESTONE_WEIGHT = 0.5;
 
 // Quick-action lane shortcuts shown on row hover. Each lane gets only the 1-2
 // most-likely moves from where it currently sits — cuts triage clicks for the
@@ -791,11 +796,17 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
     const rest = tasks;
 
     // Bucket map: key → { label, tasks, isMilestone }
+    // Only treat as milestone-group when weight >= MILESTONE_WEIGHT — the
+    // enrichment agent can be liberal with primary_goal_id ("plausibly
+    // related") and we want this view to surface direct contributors, not
+    // ambient work that pattern-matches a goal. Lower-weight goal-linked
+    // tasks fall back to theme grouping.
     const buckets = new Map();
     for (const t of rest) {
       const goal = t.primaryGoalId ? goalsById.get(t.primaryGoalId) : null;
+      const strongLink = goal && (t.weight ?? 0) >= MILESTONE_WEIGHT;
       let key, label, isMilestone;
-      if (goal) {
+      if (strongLink) {
         key = `goal:${t.primaryGoalId}`;
         label = goal.title;
         isMilestone = true;

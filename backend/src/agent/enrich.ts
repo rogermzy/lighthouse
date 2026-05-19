@@ -97,7 +97,7 @@ ${goalLines}
 
 For each task you receive, return:
 - theme: a short semantic cluster label (2-4 words, Title Case). Examples: "Baby Tree SEO", "Eon Client Comms", "Personal Errands", "Lighthouse Build", "Email Triage". Cluster by what the task is ABOUT, not where it came from. Use the SAME theme string across tasks in the same cluster.
-- primary_goal_id: the goal id (e.g. "a1", "q2", "m3") this task most ladders to, or null if none. Prefer the most specific horizon that fits (monthly > quarterly > annual).
+- primary_goal_id: the goal id (e.g. "a1", "q2", "m3") this task DIRECTLY contributes to, or null. Be conservative — default to null unless completing this task would visibly move a specific goal forward. Housekeeping, comms, admin, ambient maintenance, and "plausibly related" work should be null. Prefer the most specific horizon (monthly > quarterly > annual) when a real ladder exists. False positives clutter the milestone view, so erring on null is the right tradeoff.
 - weight: 0.0 to 1.0. Use the full range honestly.
   * 0.8-1.0 = direct, concrete next step on a goal
   * 0.5-0.8 = supports a goal but indirect
