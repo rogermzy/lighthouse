@@ -1343,7 +1343,7 @@ function App() {
   useEffect(() => { localStorage.setItem("lighthouse.sidebarCollapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => { localStorage.setItem("lighthouse.railCollapsed", String(railCollapsed)); }, [railCollapsed]);
   const [toast, setToast] = useState(null); // { kind: "warn"|"ok", text: string }
-  const [capModal, setCapModal] = useState(null); // { newItemTitle, retry: async () => Response }
+  const [capModal, setCapModal] = useState(null); // { newItemTitle, retry: async () => Response, onResolve?: (ok: boolean) => void }
   const [capBusy, setCapBusy] = useState(false);
 
   // Single source of truth for the task pool — initialized from data.jsx's preload,
@@ -1682,10 +1682,13 @@ function App() {
         throw new Error(body.message || `retry ${retryRes.status}`);
       }
 
+      const callback = capModal.onResolve;
       setCapModal(null);
       setToast({ kind: "ok", text: "Swapped." });
+      callback?.(true);
     } catch (err) {
       setToast({ kind: "warn", text: `Couldn't swap: ${String(err.message || err)}` });
+      capModal.onResolve?.(false);
     } finally {
       setCapBusy(false);
       refreshTasks();
@@ -1962,29 +1965,31 @@ function App() {
         onAcceptAll={() => setSuggestOpen(false)}
         onAccept={async (suggestion) => {
           // Suggest agent returns either:
-          //   - a concrete existing task → promote it to Today (or This week
-          //     if Today is full)
-          //   - just a goal + reason   → create a new task titled with the
-          //     goal's nextStep, linked to the monthly via the breakdown
-          //     commit endpoint so primary_goal_id is set immediately.
+          //   - a concrete existing task → promote it to Today
+          //   - just a goal + reason     → create a new task and route to Today
+          // On 409 (Today full), open the DemoteModal so the user picks which
+          // Today task to bump — same pattern as inbox triage. Returns a
+          // promise that resolves with the eventual outcome so the button's
+          // per-row state machine reflects success/cancel correctly.
           try {
             if (suggestion.task?.id) {
-              let r = await fetch(`/api/tasks/${encodeURIComponent(suggestion.task.id)}`, {
+              const taskId = suggestion.task.id;
+              const doPatch = () => fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ lane: "today" }),
               });
+              const r = await doPatch();
               if (r.status === 409) {
-                // Today's full; fall back to This week so the action still
-                // lands somewhere actionable.
-                r = await fetch(`/api/tasks/${encodeURIComponent(suggestion.task.id)}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ lane: "this_week" }),
+                // Hand off to DemoteModal; await its resolution before
+                // reporting back to the Suggest button.
+                return await new Promise((resolve) => {
+                  setCapModal({
+                    newItemTitle: suggestion.task.title,
+                    retry: doPatch,
+                    onResolve: (ok) => resolve({ ok }),
+                  });
                 });
-                if (r.ok) {
-                  setToast({ kind: "warn", text: "Today is full — added to This week instead." });
-                }
               }
               if (!r.ok) {
                 const body = await r.json().catch(() => ({}));
@@ -1994,9 +1999,8 @@ function App() {
               await refreshTasks();
               return { ok: true };
             }
-            // No existing task — use the milestone commit endpoint to create
-            // one with primary_goal_id pre-set. Lane: this_week by default
-            // (Today cap may bite); user can promote via drag or quick-lane.
+            // No existing task — create one via the milestone-commit endpoint
+            // (pre-populates primary_goal_id). Lands in this_week by default.
             const goalId = suggestion.goal?.id;
             const title = suggestion.task?.title || suggestion.goal?.nextStep || suggestion.goal?.title;
             if (!goalId || !title) {
@@ -2022,6 +2026,27 @@ function App() {
               setToast({ kind: "warn", text: body.detail || body.error || `Couldn't add (${r.status}).` });
               return { ok: false };
             }
+            // The created task lands in this_week. Promote to Today; if the
+            // cap is full now, hand off to DemoteModal same as above.
+            const created = await r.json();
+            const newId = (created.created || [])[0];
+            if (newId) {
+              const doPromote = () => fetch(`/api/tasks/${encodeURIComponent(newId)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ lane: "today" }),
+              });
+              const p = await doPromote();
+              if (p.status === 409) {
+                return await new Promise((resolve) => {
+                  setCapModal({
+                    newItemTitle: title,
+                    retry: doPromote,
+                    onResolve: (ok) => resolve({ ok }),
+                  });
+                });
+              }
+            }
             await refreshTasks();
             return { ok: true };
           } catch (err) {
@@ -2042,7 +2067,12 @@ function App() {
         newItemTitle={capModal?.newItemTitle ?? ""}
         todayTasks={tasksByLane.today.filter(t => !doneSet.has(t.id))}
         onPick={handleDemote}
-        onCancel={() => { if (!capBusy) setCapModal(null); }}
+        onCancel={() => {
+          if (capBusy) return;
+          const callback = capModal?.onResolve;
+          setCapModal(null);
+          callback?.(false);
+        }}
         busy={capBusy}
       />
 
