@@ -532,17 +532,19 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
     setHoverId(null);
   };
 
-  // Pick the highest-weighted week-lane items to fill the open slots, with a
-  // proper tiebreaker chain + theme spread. See rankRecommendations above.
-  // Excludes anything already in Today (defensive — done items live in `tasks`,
-  // not `weekTasks`, but a stale sync could double up).
+  // Pick the highest-weighted week-lane items as the queue, with the
+  // tiebreaker chain + theme spread (see rankRecommendations). When Today
+  // has open slots, show that many. When Today is full, still show 3
+  // picks as a "what's queued up after these" preview so the section is
+  // never empty — the user wants to see what's next at all times, not
+  // just when there's an actionable slot.
   const recommendations = useMemo(() => {
-    if (slotsLeft === 0) return [];
     const todayIds = new Set(tasks.map(t => t.id));
     const eligible = (weekTasks || []).filter(
       t => (t.weight ?? 0) >= REC_MIN_WEIGHT && !todayIds.has(t.id)
     );
-    return rankRecommendations(eligible, slotsLeft);
+    const targetCount = Math.max(slotsLeft, 3);
+    return rankRecommendations(eligible, targetCount);
   }, [weekTasks, tasks, slotsLeft]);
 
   // One "acting" lock per row covers both Pull and Defer — they're mutually
@@ -640,19 +642,20 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
       </div>
     </section>
 
-    {slotsLeft > 0 && (
-      <section className="rec-section" style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 28 }}>
+    <section className="rec-section" style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 28 }}>
         <div className="section-head">
           <div>
             <div className="section-title">Up next</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-              {recommendations.length > 0
+              {slotsLeft > 0
                 ? "Pinned items first, then highest-weighted picks from this week. Pull what fits."
-                : "Pinned items first, then highest-weighted picks from this week."}
+                : "Today is full — these queue up after you finish the current three."}
             </div>
           </div>
           <div className="section-meta">
-            <b>{slotsLeft}</b> open slot{slotsLeft === 1 ? "" : "s"}
+            {slotsLeft > 0
+              ? <><b>{slotsLeft}</b> open slot{slotsLeft === 1 ? "" : "s"}</>
+              : <span style={{ color: "var(--muted-2)" }}>preview</span>}
           </div>
         </div>
 
@@ -711,7 +714,6 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
           </div>
         )}
       </section>
-    )}
     </>
   );
 }
