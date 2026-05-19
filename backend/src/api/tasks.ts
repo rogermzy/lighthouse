@@ -236,6 +236,15 @@ tasksApi.patch("/:id", async (c) => {
       }
       setters.push(FIELD_SQL.lane);
       params.lane = newLane;
+      // Pin only has meaning for "queued up in this week's plan." If the
+      // task leaves this_week (promoted to today/now, or demoted out), the
+      // pin's intent has been honored or expired — clear it so we don't
+      // leave invisible pinned data in lanes where the pin UI isn't shown.
+      // Same rule the decay job uses for this_week → this_month transitions.
+      if (newLane !== "this_week" && body.pinned === undefined) {
+        setters.push(FIELD_SQL.pinned);
+        params.pinned = 0;
+      }
     }
     if (typeof body.bigRock === "boolean") {
       setters.push(FIELD_SQL.big_rock);

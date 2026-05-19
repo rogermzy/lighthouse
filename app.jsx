@@ -1845,7 +1845,14 @@ function App() {
           doneSet={doneSet}
           toggleDone={toggleDone}
           onOpenDetail={openDetail}
-          onGoalsChange={refreshGoals}
+          onGoalsChange={async () => {
+            // Refresh BOTH — TaskBreakdownModal can create new tasks and
+            // link existing ones, both of which the Goals page's expander
+            // reads from the tasks prop. Refreshing only goals would leave
+            // the expander showing stale data until something else (e.g.
+            // navigating back to Today) triggers a tasks refresh.
+            await Promise.all([refreshGoals(), refreshTasks()]);
+          }}
         />
       ) : activeView === "journal" ? (
         <JournalPage

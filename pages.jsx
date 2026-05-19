@@ -651,7 +651,14 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
                 <Icon.check />
               </button>
               <div className="task-main">
-                <div className="task-title">{t.title}</div>
+                <div className="task-title">
+                  {t.primaryGoalId && (t.weight ?? 0) >= 0.5 && (
+                    <span className="row-milestone-flag" title="Direct contributor to a milestone">
+                      <Icon.milestone />
+                    </span>
+                  )}
+                  {t.title}
+                </div>
                 {t.theme && (
                   <div className="task-note" style={{ fontStyle: "italic", color: "var(--muted)" }}>
                     {t.theme}
