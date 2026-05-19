@@ -660,6 +660,7 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
               </div>
               <div className="task-right">
                 <SourceChip id={t.source} />
+                {t.project && <span className="row-project mono">{t.project}</span>}
                 {t.due && <span className="estimate mono">{t.due}</span>}
                 {typeof t.weight === "number" && (
                   <span className={`ondeck-weight ${t.weight >= 0.7 ? "high" : t.weight >= 0.3 ? "mid" : "low"}`}>

@@ -586,6 +586,25 @@ input, textarea {
   color: var(--muted);
   font-size: 11.5px;
 }
+/* Project (list / database / repo name from the source system) inline on
+   task rows. Subtle, mono, sits between SourceChip and due — gives quick
+   context for "where this came from inside that source" without the
+   visual weight of a chip. */
+.row-project {
+  font-size: 10.5px;
+  color: var(--muted-2);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 1px 6px;
+  letter-spacing: 0.02em;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .task-right .estimate {
   font-variant-numeric: tabular-nums;
   background: var(--paper-2);

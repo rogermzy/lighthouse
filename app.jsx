@@ -625,6 +625,7 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
               <div className="task-right">
                 <TagChip id={t.tag} />
                 <SourceChip id={t.source} />
+                {t.project && <span className="row-project mono">{t.project}</span>}
                 <span className="estimate mono">{t.estimate}m</span>
                 {onStartNow && (
                   <button
@@ -938,6 +939,7 @@ function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail, 
       <span className="ondeck-title">{t.title}</span>
       <TagChip id={t.tag} />
       <SourceChip id={t.source} />
+      {t.project && <span className="row-project mono">{t.project}</span>}
       <span className={`due ${dueClass(t.due)}`}>{t.due}</span>
       {w !== null && (
         <span className={`ondeck-weight ${weightCls}`}>
