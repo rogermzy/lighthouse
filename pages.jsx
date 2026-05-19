@@ -1317,7 +1317,7 @@ function ContextModal({ annual, onClose, onSave }) {
   );
 }
 
-function GoalsPage({ onSuggest, goals, onGoalsChange }) {
+function GoalsPage({ onSuggest, goals, onGoalsChange, tasks, doneSet, toggleDone, onOpenDetail }) {
   // Local copy for optimistic edits; resyncs whenever the prop updates.
   const [local, setLocal] = React.useState(goals);
   React.useEffect(() => setLocal(goals), [goals]);
@@ -1328,6 +1328,31 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
   const [contextAnnual, setContextAnnual] = React.useState(null);
   // The monthly milestone being broken down into tasks (modal target).
   const [taskBreakdownMonthly, setTaskBreakdownMonthly] = React.useState(null);
+  // Expanded monthly milestone IDs — show their linked tasks inline.
+  const [expandedMonthlyIds, setExpandedMonthlyIds] = React.useState(() => new Set());
+  const toggleMonthlyExpand = (id) => {
+    setExpandedMonthlyIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // Build a map of monthly_id → tasks laddering to it (via primary_goal_id
+  // set by enrichment or by task-breakdown commit). Includes done tasks so
+  // the "N tasks · M done" counter is honest.
+  const tasksByMonthly = React.useMemo(() => {
+    const map = new Map();
+    (tasks || []).forEach((t) => {
+      if (!t.primaryGoalId) return;
+      if (!map.has(t.primaryGoalId)) map.set(t.primaryGoalId, []);
+      map.get(t.primaryGoalId).push(t);
+    });
+    for (const arr of map.values()) {
+      arr.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+    }
+    return map;
+  }, [tasks]);
 
   const patchGoal = async (horizon, id, patch) => {
     setLocal(prev => ({
@@ -1553,39 +1578,89 @@ function GoalsPage({ onSuggest, goals, onGoalsChange }) {
               ? (safe.annual.find(a => a.id === (parent.parent || parent.id)) || parent)
               : safe.annual[0];
             const color = annual?.color || "#5e6ad2";
+            const linkedTasks = tasksByMonthly?.get(g.id) || [];
+            const linkedDone = linkedTasks.filter(t => (doneSet && doneSet.has(t.id)) || t.doneAt).length;
+            const linkedOpen = linkedTasks.length - linkedDone;
+            const isExpanded = expandedMonthlyIds.has(g.id);
             return (
-              <div key={g.id} className="task-row no-drag" style={{ cursor: "default" }}>
-                <span className="check" style={{ border: 0 }}>
-                  <ProgressRing value={g.progress || 0} size={22} stroke={2.5} color={color} />
-                </span>
-                <div className="task-main">
-                  <div className="task-title">
-                    <EditableText value={g.title} placeholder="Untitled"
-                                  onCommit={(v) => patchGoal("monthly", g.id, { title: v })} />
-                  </div>
-                  <div className="task-note">
-                    <span style={{
-                      display: "inline-block", width: 5, height: 5, borderRadius: 999,
-                      background: color, marginRight: 6, verticalAlign: "middle"
-                    }} />
-                    Next:&nbsp;
-                    <EditableText value={g.nextStep} placeholder="Next concrete step"
-                                  onCommit={(v) => patchGoal("monthly", g.id, { nextStep: v })} />
-                  </div>
-                </div>
-                <div className="task-right">
-                  <span className="goal-pct mono">
-                    <EditablePercent value={g.progress} onCommit={(v) => patchGoal("monthly", g.id, { progress: v })} />
+              <React.Fragment key={g.id}>
+                <div className="task-row no-drag" style={{ cursor: "default" }}>
+                  <span className="check" style={{ border: 0 }}>
+                    <ProgressRing value={g.progress || 0} size={22} stroke={2.5} color={color} />
                   </span>
-                  <button
-                    className="monthly-break-tasks-btn"
-                    title="Break this monthly milestone into tasks with an LLM"
-                    onClick={() => setTaskBreakdownMonthly(g)}>
-                    <Icon.tree />
-                  </button>
-                  <button className="goal-delete-inline" title="Delete" onClick={() => deleteGoal("monthly", g.id)}>×</button>
+                  <div className="task-main">
+                    <div className="task-title">
+                      <EditableText value={g.title} placeholder="Untitled"
+                                    onCommit={(v) => patchGoal("monthly", g.id, { title: v })} />
+                    </div>
+                    <div className="task-note">
+                      <span style={{
+                        display: "inline-block", width: 5, height: 5, borderRadius: 999,
+                        background: color, marginRight: 6, verticalAlign: "middle"
+                      }} />
+                      Next:&nbsp;
+                      <EditableText value={g.nextStep} placeholder="Next concrete step"
+                                    onCommit={(v) => patchGoal("monthly", g.id, { nextStep: v })} />
+                    </div>
+                  </div>
+                  <div className="task-right">
+                    {linkedTasks.length > 0 && (
+                      <button
+                        className="monthly-tasks-count"
+                        title={isExpanded ? "Hide linked tasks" : "Show linked tasks"}
+                        onClick={() => toggleMonthlyExpand(g.id)}>
+                        <span className="mono">{linkedTasks.length}</span>
+                        <span style={{ color: "var(--muted-2)" }}>
+                          {linkedDone > 0 ? ` · ${linkedDone} done` : ""}
+                        </span>
+                        <span className="monthly-tasks-chevron">{isExpanded ? "▾" : "▸"}</span>
+                      </button>
+                    )}
+                    <span className="goal-pct mono">
+                      <EditablePercent value={g.progress} onCommit={(v) => patchGoal("monthly", g.id, { progress: v })} />
+                    </span>
+                    <button
+                      className="monthly-break-tasks-btn"
+                      title="Break this monthly milestone into tasks with an LLM"
+                      onClick={() => setTaskBreakdownMonthly(g)}>
+                      <Icon.tree />
+                    </button>
+                    <button className="goal-delete-inline" title="Delete" onClick={() => deleteGoal("monthly", g.id)}>×</button>
+                  </div>
                 </div>
-              </div>
+                {isExpanded && (
+                  <div className="monthly-tasks-expanded">
+                    {linkedTasks.length === 0 ? (
+                      <div className="monthly-tasks-empty">
+                        No tasks laddering to this milestone yet. Click the 🌳 button to generate some.
+                      </div>
+                    ) : (
+                      linkedTasks.map((t) => {
+                        const done = doneSet?.has(t.id) || Boolean(t.doneAt);
+                        return (
+                          <div key={t.id} className={`monthly-linked-task ${done ? "done" : ""}`}>
+                            <button
+                              className="check check-btn"
+                              onClick={(e) => { e.stopPropagation(); toggleDone?.(t.id); }}
+                              aria-label={done ? "Mark undone" : "Mark done"}>
+                              <Icon.check />
+                            </button>
+                            <span
+                              className="monthly-linked-task-title"
+                              onClick={() => onOpenDetail?.(t.id)}>
+                              {t.title}
+                            </span>
+                            <span className="monthly-linked-task-meta">
+                              {t.lane && <span className="monthly-linked-task-lane">{t.lane.replace("_", " ")}</span>}
+                              {t.estimate && <span className="monthly-linked-task-est">{t.estimate}m</span>}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
             );
           })}
         </div>

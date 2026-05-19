@@ -2074,6 +2074,110 @@ input, textarea {
   color: var(--accent);
   background: rgba(184, 68, 46, 0.12);
 }
+
+/* Layer 2 — "N · M done ▸" badge on the monthly row. Click to expand the
+   linked-tasks list. Always visible (not hover-gated) so the count is a
+   first-class signal of "this milestone has work attached." */
+.monthly-tasks-count {
+  appearance: none;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.monthly-tasks-count:hover {
+  border-color: var(--ink-2);
+  background: var(--paper);
+}
+.monthly-tasks-chevron {
+  font-size: 9px;
+  color: var(--muted-2);
+  margin-left: 2px;
+}
+
+/* Expanded linked-task list sits indented below the milestone row. Each
+   task is a slim row: inline check, title, lane + estimate. Click the
+   title to open the detail modal. */
+.monthly-tasks-expanded {
+  padding: 6px 14px 12px 50px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-2);
+}
+.monthly-tasks-empty {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-style: italic;
+  padding: 6px 0;
+}
+.monthly-linked-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.monthly-linked-task.done .monthly-linked-task-title {
+  color: var(--muted-2);
+  text-decoration: line-through;
+}
+.monthly-linked-task-title {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.monthly-linked-task-title:hover { color: var(--accent-4); }
+.monthly-linked-task-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--muted-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.monthly-linked-task-lane {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.monthly-linked-task-est {
+  font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+}
+
+/* Layer 3 — milestone-group eyebrow on OnDeck theme headers. When a
+   group's tasks ladder to a known goal (primary_goal_id is set), prepend
+   a small "↳ MILESTONE" label in accent color so the user knows they're
+   looking at committed-goal work vs. unattached theme clustering. */
+.ondeck-theme.milestone-group .ondeck-theme-head {
+  border-bottom-color: var(--accent-4);
+}
+.milestone-eyebrow {
+  font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin-right: 10px;
+  font-style: normal;
+  vertical-align: middle;
+}
 .goal-pct {
   font-weight: 600;
   color: var(--ink-2);

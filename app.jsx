@@ -753,43 +753,68 @@ function quickLaneActions(lane) {
   }
 }
 
-function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onTogglePin, onChangeLane }) {
+function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onTogglePin, onChangeLane, goals }) {
   const [reenriching, setReenriching] = useState(false);
   const [showBelow, setShowBelow] = useState(() => new Set());
   const dueClass = (d) => (d === "tomorrow" || d === "fri") ? "warn" : "";
 
   const groups = useMemo(() => {
+    // Build a goal-id → {title, horizon} lookup so tasks with a
+    // primary_goal_id can be grouped under their milestone name. The
+    // monthly title is the strongest signal (e.g. "May: MVP 内核开发完成");
+    // quarterly + annual are fallbacks if a task ladders higher.
+    const goalsById = new Map();
+    (goals?.monthly   || []).forEach((g) => goalsById.set(g.id, { title: g.title, horizon: "monthly" }));
+    (goals?.quarterly || []).forEach((g) => goalsById.set(g.id, { title: g.title, horizon: "quarterly" }));
+    (goals?.annual    || []).forEach((g) => goalsById.set(g.id, { title: g.title, horizon: "annual" }));
+
     // Pull pinned items into a dedicated group at the very top so the user's
     // explicit "promote this next" picks are easy to scan. They're removed
     // from their original theme groups to avoid duplication.
     const pinned = tasks.filter((t) => t.pinned);
     const rest   = tasks.filter((t) => !t.pinned);
 
+    // Bucket map: key → { label, tasks, isMilestone }
     const buckets = new Map();
     for (const t of rest) {
-      const theme = t.theme || UNSORTED_THEME;
-      if (!buckets.has(theme)) buckets.set(theme, []);
-      buckets.get(theme).push(t);
+      const goal = t.primaryGoalId ? goalsById.get(t.primaryGoalId) : null;
+      let key, label, isMilestone;
+      if (goal) {
+        key = `goal:${t.primaryGoalId}`;
+        label = goal.title;
+        isMilestone = true;
+      } else {
+        const theme = t.theme || UNSORTED_THEME;
+        key = `theme:${theme}`;
+        label = theme;
+        isMilestone = false;
+      }
+      if (!buckets.has(key)) buckets.set(key, { label, tasks: [], isMilestone });
+      buckets.get(key).tasks.push(t);
     }
-    for (const arr of buckets.values()) {
-      arr.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+    for (const v of buckets.values()) {
+      v.tasks.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
     }
-    // Sort themes by max weight desc — most-impactful cluster surfaces first.
-    // "Awaiting triage" always lands at the bottom so it doesn't crowd signal.
-    const sorted = [...buckets.entries()].sort((a, b) => {
-      if (a[0] === UNSORTED_THEME) return 1;
-      if (b[0] === UNSORTED_THEME) return -1;
-      const aMax = Math.max(...a[1].map((t) => t.weight ?? 0));
-      const bMax = Math.max(...b[1].map((t) => t.weight ?? 0));
-      return bMax - aMax;
+    // Two-tier sort: milestone groups first (they're the spine — what
+    // ladders to your committed goals), then loose theme groups. Within
+    // each tier, sort by max weight desc so highest-impact surfaces first.
+    // Awaiting-triage theme always lands at the very bottom.
+    const entries = [...buckets.entries()].map(([k, v]) => ({ key: k, ...v }));
+    const maxW = (tasks) => tasks.reduce((m, t) => Math.max(m, t.weight ?? 0), 0);
+    const milestoneGroups = entries.filter((e) => e.isMilestone).sort((a, b) => maxW(b.tasks) - maxW(a.tasks));
+    const themeGroups = entries.filter((e) => !e.isMilestone).sort((a, b) => {
+      if (a.label === UNSORTED_THEME) return 1;
+      if (b.label === UNSORTED_THEME) return -1;
+      return maxW(b.tasks) - maxW(a.tasks);
     });
+    const sorted = [...milestoneGroups, ...themeGroups].map((e) => [e.label, e.tasks, e.isMilestone]);
 
     if (pinned.length > 0) {
       pinned.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
-      return [[PINNED_GROUP, pinned], ...sorted];
+      return [[PINNED_GROUP, pinned, false], ...sorted];
     }
     return sorted;
-  }, [tasks]);
+  }, [tasks, goals]);
 
   const totalAbove = useMemo(
     () => tasks.filter((t) => (t.weight ?? 0) >= BELOW_LINE).length,
@@ -831,7 +856,7 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
         </div>
       </div>
 
-      {groups.map(([theme, themeTasks]) => {
+      {groups.map(([theme, themeTasks, isMilestone]) => {
         const isPinnedGroup = theme === PINNED_GROUP;
         // Pinned group skips the below-the-line foldout — pinned items are
         // already an explicit signal; hiding them under "below the line"
@@ -847,9 +872,12 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
         const visible = isUnsorted ? themeTasks : above;
 
         return (
-          <div key={theme} className={`ondeck-theme ${isPinnedGroup ? "pinned-group" : ""}`}>
+          <div key={theme} className={`ondeck-theme ${isPinnedGroup ? "pinned-group" : ""} ${isMilestone ? "milestone-group" : ""}`}>
             <div className="ondeck-theme-head">
-              <span className="ondeck-theme-name">{theme}</span>
+              <span className="ondeck-theme-name">
+                {isMilestone && <span className="milestone-eyebrow">↳ MILESTONE</span>}
+                {theme}
+              </span>
               <span className="ondeck-theme-meta">{themeTasks.length}</span>
             </div>
             <div className="ondeck-list">
@@ -1768,6 +1796,7 @@ function App() {
               tasks={stripDone(tasksByLane.this_week)}
               toggleDone={toggleDone}
               doneSet={doneSet}
+              goals={goals}
               onOpenDetail={openDetail}
               onTogglePin={togglePin}
               onChangeLane={patchLane}
@@ -1790,6 +1819,10 @@ function App() {
         <GoalsPage
           onSuggest={() => setSuggestOpen(true)}
           goals={goals}
+          tasks={tasks}
+          doneSet={doneSet}
+          toggleDone={toggleDone}
+          onOpenDetail={openDetail}
           onGoalsChange={refreshGoals}
         />
       ) : activeView === "journal" ? (
