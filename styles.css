@@ -2673,11 +2673,12 @@ textarea.editable-input { line-height: 1.5; }
   background: var(--paper-2);
 }
 
-/* Pinned rec row on Today page: warm tint + ★ swapped for 📌 (handled in JSX) */
+/* Pinned rec row on Today page: warm accent tint so the user's explicit
+   "next up" picks read as elevated within the Up next queue. 📌 in the
+   rail (handled in JSX) is the visible identifier. */
 .task-row.rec-pinned {
-  background-image: none;
   background-color: rgba(184, 68, 46, 0.06);
-  border-color: var(--accent-4) !important;
+  border-color: var(--accent-4);
 }
 .task-row.rec-pinned .rec-rail {
   color: var(--accent);
@@ -2741,17 +2742,15 @@ textarea.editable-input { line-height: 1.5; }
 }
 .ondeck-below-toggle:hover { color: var(--ink-2); background: var(--paper-2); }
 
-/* ───── Today's three — inline recommendations ───── */
+/* ───── Today's three — Up next queue rows ─────
+   Look like regular task rows. The "queue / preview" framing comes from
+   the section header above, not row-level visual chrome. Earlier this
+   block had diagonal hatching + dashed borders to signal "tentative,"
+   but that visual treatment fought with the rest of the calm-paper
+   aesthetic. Just clean rows now. */
 .rec-row {
-  background: repeating-linear-gradient(
-    -45deg,
-    transparent 0 6px,
-    rgba(184, 68, 46, 0.025) 6px 7px
-  );
-  border-style: dashed !important;
   cursor: default !important;
 }
-.rec-row:hover { background-color: rgba(184, 68, 46, 0.04); }
 .rec-rail {
   width: 18px;
   display: flex;

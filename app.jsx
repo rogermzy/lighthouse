@@ -681,7 +681,10 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
                 className={`task-row rec-row ${t.pinned ? "rec-pinned" : ""}`}
                 onClick={() => onOpenDetail?.(t.id)}
                 title={t.reasoning || "Recommended from this week — click for details"}>
-                <span className="rec-rail" aria-hidden>{t.pinned ? "📌" : "★"}</span>
+                {/* Empty rail span — keeps the grid alignment with regular
+                    task-rows (which have a drag-handle + check in cols 1-2).
+                    Pinned items show 📌; non-pinned leave the gutter clean. */}
+                <span className="rec-rail" aria-hidden>{t.pinned ? "📌" : ""}</span>
                 <div className="task-main">
                   <div className="task-title">
                     {t.title}
