@@ -2647,21 +2647,6 @@ textarea.editable-input { line-height: 1.5; }
   background: var(--paper-2);
 }
 
-/* "Pinned · next up" group gets a slightly warmer header treatment so it
-   reads as elevated, not just another theme bucket. */
-.ondeck-theme.pinned-group .ondeck-theme-head {
-  border-bottom-color: var(--accent-4);
-}
-.ondeck-theme.pinned-group .ondeck-theme-name {
-  color: var(--accent-4);
-  font-style: normal;
-  font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-
 /* Pinned rec row on Today page: warm tint + ★ swapped for 📌 (handled in JSX) */
 .task-row.rec-pinned {
   background-image: none;

@@ -644,11 +644,11 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
       <section className="rec-section" style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 28 }}>
         <div className="section-head">
           <div>
-            <div className="section-title">Suggested next</div>
+            <div className="section-title">Up next</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
               {recommendations.length > 0
-                ? "Highest-weighted picks from this week. Pull what fits, push the rest to Later."
-                : "Highest-weighted picks from this week."}
+                ? "Pinned items first, then highest-weighted picks from this week. Pull what fits."
+                : "Pinned items first, then highest-weighted picks from this week."}
             </div>
           </div>
           <div className="section-meta">
@@ -726,8 +726,6 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
 const UNSORTED_THEME = "Awaiting triage";
 const BELOW_LINE = 0.3;
 
-const PINNED_GROUP = "📌 Pinned · next up";
-
 // Quick-action lane shortcuts shown on row hover. Each lane gets only the 1-2
 // most-likely moves from where it currently sits — cuts triage clicks for the
 // common path without crowding the row with all 4 destinations. Edge-case
@@ -768,11 +766,13 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
     (goals?.quarterly || []).forEach((g) => goalsById.set(g.id, { title: g.title, horizon: "quarterly" }));
     (goals?.annual    || []).forEach((g) => goalsById.set(g.id, { title: g.title, horizon: "annual" }));
 
-    // Pull pinned items into a dedicated group at the very top so the user's
-    // explicit "promote this next" picks are easy to scan. They're removed
-    // from their original theme groups to avoid duplication.
-    const pinned = tasks.filter((t) => t.pinned);
-    const rest   = tasks.filter((t) => !t.pinned);
+    // Pinned items used to render in a dedicated "📌 Pinned · next up" group
+    // at the top of This week — but that visually claimed the "next lineup"
+    // role on the Tasks page, when actual Today-execution lives on the Today
+    // tab (which has its own "Up next" section that already surfaces pins
+    // first). Removed: pins now sit inside their own theme/milestone group
+    // with the row-level 📌 marker for identification.
+    const rest = tasks;
 
     // Bucket map: key → { label, tasks, isMilestone }
     const buckets = new Map();
@@ -808,11 +808,6 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
       return maxW(b.tasks) - maxW(a.tasks);
     });
     const sorted = [...milestoneGroups, ...themeGroups].map((e) => [e.label, e.tasks, e.isMilestone]);
-
-    if (pinned.length > 0) {
-      pinned.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
-      return [[PINNED_GROUP, pinned, false], ...sorted];
-    }
     return sorted;
   }, [tasks, goals]);
 
@@ -857,22 +852,14 @@ function OnDeck({ tasks, toggleDone, doneSet, onReenrich, onOpenDetail, onToggle
       </div>
 
       {groups.map(([theme, themeTasks, isMilestone]) => {
-        const isPinnedGroup = theme === PINNED_GROUP;
-        // Pinned group skips the below-the-line foldout — pinned items are
-        // already an explicit signal; hiding them under "below the line"
-        // would defeat the whole point. Show them all in order.
-        const above = isPinnedGroup
-          ? themeTasks
-          : themeTasks.filter((t) => (t.weight ?? 0) >= BELOW_LINE);
-        const below = isPinnedGroup
-          ? []
-          : themeTasks.filter((t) => (t.weight ?? 0) < BELOW_LINE);
+        const above = themeTasks.filter((t) => (t.weight ?? 0) >= BELOW_LINE);
+        const below = themeTasks.filter((t) => (t.weight ?? 0) < BELOW_LINE);
         const open = showBelow.has(theme);
         const isUnsorted = theme === UNSORTED_THEME;
         const visible = isUnsorted ? themeTasks : above;
 
         return (
-          <div key={theme} className={`ondeck-theme ${isPinnedGroup ? "pinned-group" : ""} ${isMilestone ? "milestone-group" : ""}`}>
+          <div key={theme} className={`ondeck-theme ${isMilestone ? "milestone-group" : ""}`}>
             <div className="ondeck-theme-head">
               <span className="ondeck-theme-name">
                 {isMilestone && <span className="milestone-eyebrow">↳ MILESTONE</span>}
