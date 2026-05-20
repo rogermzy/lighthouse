@@ -31,7 +31,7 @@ Local-first, runs entirely on `127.0.0.1`. Your data lives in a SQLite file on d
 - **Quick-lane buttons** appear on row hover: `↑` promotes one step toward Today, `↓` demotes one step toward Backlog.
 - **Pin** any This-week task with the 📌 button (5-pin cap). Pinned items sit at the top of the **Up next** queue on the Today page.
 - **Lane decay** background job: This-week items untouched 7 days drop to This-month; This-month items untouched 30 days drop to Backlog. Pins clear automatically on decay.
-- **Auto-queue on cap-full**: any "promote to Today" action (quick-lane, brain dump triage, Up Next + Pull) that hits the 3-cap automatically routes the task to This week + pinned, queuing it at the top of Up Next. Suggest accept uses an explicit DemoteModal swap instead.
+- **Soft fallback on cap-full**: any "promote to Today" action (quick-lane, brain dump triage, Up Next + Pull) that hits the 3-cap routes the task to This week (unpinned). The task still moves closer to action and surfaces in Up next on weight merit if it earns it. Pin stays reserved for explicit 📌 clicks — auto-pinning collapsed two distinct intents into the same state. Suggest accept uses an explicit DemoteModal swap instead.
 
 ### LLM agents (Claude Opus 4.7)
 

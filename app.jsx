@@ -1631,12 +1631,14 @@ function App() {
   // and recommendation pull. Centralizes error toast + refresh so individual
   // call sites stay one-liners.
   //
-  // Special-case: when target is "today" and the cap is full, instead of
-  // failing the action, queue the task in this_week with a pin so it
-  // appears at the top of Up Next as the next-in-line. Falls back to
-  // unpinned this_week if the 5-pin cap is also full. Suggest's accept
-  // flow handles its own cap-handoff (DemoteModal), so it doesn't go
-  // through here for the today promotion.
+  // Special-case: when target is "today" and the cap is full, fall back to
+  // this_week (unpinned). The task still moves closer to action, and if
+  // it's heavy enough it'll surface in Up next on weight merit. Pin is
+  // reserved for explicit 📌 clicks — auto-pinning a failed promotion
+  // collapses two distinct user intents into the same state, which makes
+  // the pin cap eat impulse clicks the user didn't mean as deliberate
+  // queue picks. Suggest's accept flow handles its own cap-handoff via
+  // DemoteModal, so it doesn't go through here.
   const patchLane = useCallback(async (id, lane, extra = {}) => {
     try {
       const r = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
@@ -1649,25 +1651,15 @@ function App() {
       const body = await r.json().catch(() => ({}));
 
       if (r.status === 409 && lane === "today" && body.error === "today_full") {
-        // Queue in Up Next: this_week + pinned. If pin cap is also at
-        // 5, fall back to this_week alone — the task at least gets
-        // closer to action even if it can't claim a queue slot.
-        const tryQueue = async (withPin) => fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+        // Soft fallback: move to this_week without pin. No silent pin =
+        // pin stays a deliberate-only signal.
+        const r2 = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(withPin ? { lane: "this_week", pinned: true } : { lane: "this_week" }),
+          body: JSON.stringify({ lane: "this_week" }),
         });
-        let r2 = await tryQueue(true);
-        let toastText = "Today is full — queued in Up Next instead.";
-        if (!r2.ok) {
-          const b2 = await r2.json().catch(() => ({}));
-          if (b2.error === "pin_cap_full") {
-            r2 = await tryQueue(false);
-            toastText = "Today is full — moved to This week (5 pinned already, can't add another).";
-          }
-        }
         if (r2.ok) {
-          setToast({ kind: "warn", text: toastText });
+          setToast({ kind: "warn", text: "Today is full — moved to This week." });
           return true;
         }
       }
@@ -1693,32 +1685,16 @@ function App() {
     setTasks(prev => prev.filter(t => t.id !== id));
     try {
       let res = await triageFetch(where);
-      // If user wanted "today" but the cap is full, auto-route to Up Next
-      // instead — triage as "later" (which lands in this_week), then pin
-      // the created task so it sits at the top of the Up Next queue.
-      // Matches the patchLane fallback for other promote-to-today paths;
-      // brain dump triage is the same lighter-touch "send this toward
-      // action" gesture, not a deliberate Today-three commitment.
+      // If user wanted "today" but the cap is full, soft-fall-back to
+      // "later" (which lands in this_week) — no auto-pin. Pin is reserved
+      // for explicit 📌 clicks; auto-pinning here would conflate the
+      // brain-dump "send this toward action" gesture with the deliberate
+      // "this is next in line" signal. The new task lands in this_week
+      // and will surface in Up next if its weight earns it.
       if (res.status === 409 && where === "today") {
         const r2 = await triageFetch("later");
         if (r2.ok) {
-          const body = await r2.json().catch(() => ({}));
-          const newId = body.createdTaskId;
-          let pinToast = "Today is full — queued in Up Next instead.";
-          if (newId) {
-            const pinRes = await fetch(`/api/tasks/${encodeURIComponent(newId)}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ pinned: true }),
-            });
-            if (!pinRes.ok) {
-              const pb = await pinRes.json().catch(() => ({}));
-              if (pb.error === "pin_cap_full") {
-                pinToast = "Today is full — moved to This week (5 pinned already, can't add another).";
-              }
-            }
-          }
-          setToast({ kind: "warn", text: pinToast });
+          setToast({ kind: "warn", text: "Today is full — moved to This week." });
         }
       }
     } catch (err) {
