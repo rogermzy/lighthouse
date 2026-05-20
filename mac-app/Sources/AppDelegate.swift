@@ -37,13 +37,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Window
 
     private func setupWindow() {
+        // Standard styleMask (no .fullSizeContentView) — the previous setup
+        // had the web content rendering BEHIND the titlebar, which slammed
+        // the dashboard's topbar (greeting + Suggest btn + icons) under the
+        // traffic-light buttons. With the title bar as its own region, the
+        // dashboard topbar gets clean space.
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        win.titlebarAppearsTransparent = true
         win.title = "Lighthouse"
         win.setFrameAutosaveName("LighthouseMainWindow")
         win.center()
