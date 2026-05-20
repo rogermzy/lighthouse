@@ -540,20 +540,26 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
     setHoverId(null);
   };
 
-  // Pick the highest-weighted week-lane items as the queue, with the
-  // tiebreaker chain + theme spread (see rankRecommendations). When Today
-  // has open slots, show that many. When Today is full, still show 3
-  // picks as a "what's queued up after these" preview so the section is
-  // never empty — the user wants to see what's next at all times, not
-  // just when there's an actionable slot.
+  // Compute the FULL ranked queue (no cap) — pinned + theme-spread picks
+  // first, then everything else by weight. The visible truncation happens
+  // at render time so the user can expand to see the whole queue without
+  // re-running the ranking. Number.MAX_SAFE_INTEGER as slotsLeft lets
+  // rankRecommendations exhaust the eligible pool through its second
+  // "allow repeats" pass.
   const recommendations = useMemo(() => {
     const todayIds = new Set(tasks.map(t => t.id));
     const eligible = (weekTasks || []).filter(
       t => (t.weight ?? 0) >= REC_MIN_WEIGHT && !todayIds.has(t.id)
     );
-    const targetCount = Math.max(slotsLeft, 3);
-    return rankRecommendations(eligible, targetCount);
-  }, [weekTasks, tasks, slotsLeft]);
+    return rankRecommendations(eligible, Number.MAX_SAFE_INTEGER);
+  }, [weekTasks, tasks]);
+  // Top-3 collapsed by default; expand to see the rest of the queue.
+  const [upNextExpanded, setUpNextExpanded] = useState(false);
+  const VISIBLE_REC_COUNT = 3;
+  const visibleRecs = upNextExpanded
+    ? recommendations
+    : recommendations.slice(0, VISIBLE_REC_COUNT);
+  const hiddenRecCount = Math.max(0, recommendations.length - VISIBLE_REC_COUNT);
 
   // One "acting" lock per row covers both Pull and Defer — they're mutually
   // exclusive on the same rec, and either action triggers a refresh that
@@ -668,14 +674,14 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
           </div>
           <div className="section-meta">
             {slotsLeft > 0
-              ? <><b>{slotsLeft}</b> open slot{slotsLeft === 1 ? "" : "s"}</>
-              : <span style={{ color: "var(--muted-2)" }}>preview</span>}
+              ? <><b>{slotsLeft}</b> open slot{slotsLeft === 1 ? "" : "s"} · <b>{recommendations.length}</b> queued</>
+              : <><b>{recommendations.length}</b> queued <span style={{ color: "var(--muted-2)" }}>· preview</span></>}
           </div>
         </div>
 
         {recommendations.length > 0 ? (
           <div className="task-list">
-            {recommendations.map(t => (
+            {visibleRecs.map(t => (
               <div
                 key={`rec-${t.id}`}
                 className={`task-row rec-row ${t.pinned ? "rec-pinned" : ""}`}
@@ -724,6 +730,20 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
                 </div>
               </div>
             ))}
+            {hiddenRecCount > 0 && !upNextExpanded && (
+              <button
+                className="up-next-expand"
+                onClick={() => setUpNextExpanded(true)}>
+                Show {hiddenRecCount} more ▾
+              </button>
+            )}
+            {upNextExpanded && recommendations.length > VISIBLE_REC_COUNT && (
+              <button
+                className="up-next-expand"
+                onClick={() => setUpNextExpanded(false)}>
+                Hide ▴
+              </button>
+            )}
           </div>
         ) : (
           <div className="rec-empty">
