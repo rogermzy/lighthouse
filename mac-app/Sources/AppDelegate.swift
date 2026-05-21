@@ -48,6 +48,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             backing: .buffered,
             defer: false
         )
+        // CRITICAL: NSWindow defaults to isReleasedWhenClosed = true, which
+        // means closing the window with the red traffic light deallocates
+        // the underlying NSWindow object. Our `self.window` stored property
+        // then points at freed memory, and the next Dock-click-to-reopen
+        // (applicationShouldHandleReopen → showWindow → window?.makeKey...)
+        // crashes with EXC_BAD_ACCESS. Disable the auto-release so the
+        // strong reference in `self.window` is the source of truth for the
+        // window's lifetime — it stays alive while closed and just becomes
+        // hidden, ready to re-key on reopen.
+        win.isReleasedWhenClosed = false
         win.title = "Lighthouse"
         win.setFrameAutosaveName("LighthouseMainWindow")
         win.center()
@@ -268,6 +278,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Actions
 
     @objc private func showWindow() {
+        // Defensive: if the window reference somehow went nil (shouldn't
+        // happen with isReleasedWhenClosed=false, but belt-and-suspenders),
+        // rebuild it so the menu/Dock click doesn't silently no-op.
+        if window == nil {
+            setupWindow()
+            if let manager = serverManager, let url = URL(string: "http://127.0.0.1:3000") {
+                _ = manager  // keep ref alive
+                webView?.load(URLRequest(url: url))
+            }
+        }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
