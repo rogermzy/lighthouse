@@ -59,6 +59,19 @@ function taskHash(t: TaskForEnrichment, goalsSig: string): string {
   return createHash("sha1").update(key).digest("hex").slice(0, 16);
 }
 
+// When the enrichment prompt itself changes (not just the input data),
+// existing rows look "fresh" by content hash but were actually classified
+// by the old prompt. loadAllOpenTasks bypasses the hash check so a manual
+// re-rank pass can reclassify everything under the current prompt.
+function loadAllOpenTasks(): TaskForEnrichment[] {
+  const rows = db.prepare(`
+    SELECT t.id, t.title, t.project, t.note, t.source, t.due
+    FROM tasks t
+    WHERE t.done_at IS NULL
+  `).all() as TaskForEnrichment[];
+  return rows;
+}
+
 function loadStaleTasks(goalsSig: string): TaskForEnrichment[] {
   // Pull undone tasks from every lane — focus/today/ondeck/someday. The UI
   // currently only groups OnDeck, but enriching the full pool is cheap and
@@ -170,7 +183,7 @@ let runningPromise: Promise<{ enriched: number; skipped: number }> | null = null
  * Enrich all stale on-deck tasks. Idempotent — re-running with no changes
  * is a no-op (returns enriched=0). Coalesces concurrent invocations.
  */
-export async function runEnrichment(): Promise<{ enriched: number; skipped: number }> {
+export async function runEnrichment(force = false): Promise<{ enriched: number; skipped: number }> {
   if (!isEnrichmentConfigured()) return { enriched: 0, skipped: 0 };
   if (runningPromise) return runningPromise;
 
@@ -178,7 +191,9 @@ export async function runEnrichment(): Promise<{ enriched: number; skipped: numb
     try {
       const goals = loadGoals();
       const goalsSig = goalsSignature(goals);
-      const stale = loadStaleTasks(goalsSig);
+      // force=true bypasses the content-hash check, treating every open
+      // task as stale. Used by manual "re-rank" after a prompt change.
+      const stale = force ? loadAllOpenTasks() : loadStaleTasks(goalsSig);
       if (stale.length === 0) return { enriched: 0, skipped: 0 };
 
       const client = new Anthropic();

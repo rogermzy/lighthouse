@@ -156,8 +156,12 @@ tasksApi.get("/", (c) => {
 // is only needed for an immediate refresh — e.g. after editing goals or
 // kicking a manual sync.
 tasksApi.post("/reenrich", async (c) => {
+  // ?force=true → reclassify every open task, bypassing the content-hash
+  // staleness check. Useful after prompt edits since the hash alone won't
+  // detect that the prompt changed under fixed input.
+  const force = c.req.query("force") === "true";
   try {
-    const result = await runEnrichment();
+    const result = await runEnrichment(force);
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json({ error: String(err) }, 500);
