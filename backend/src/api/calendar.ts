@@ -106,7 +106,17 @@ calendarApi.get("/today", (c) => {
   const nowDate = new Date();
   const nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
   const effectiveStart = Math.min(meta.day_end_min, Math.max(meta.day_start_min, nowMin));
-  const freeBlocks = computeFreeBlocks(todayEvents, effectiveStart, meta.day_end_min);
+  // Restrict the free-block calculation to events that fall inside the
+  // configured day window. Without this, a late-evening event (say a 9:30pm
+  // social calendar item) past day_end_min creates a phantom "free block"
+  // between day_end and that event — showing the user "3h free" at 11pm
+  // when the work-day window closed hours ago. Spans that cross day_end
+  // (e.g. 6pm-7pm event when day_end is 6:30pm) get their end clamped so
+  // the cursor logic stays inside the window.
+  const windowEvents = todayEvents
+    .filter((e) => e.start_min < meta.day_end_min)
+    .map((e) => ({ ...e, end_min: Math.min(e.end_min, meta.day_end_min) }));
+  const freeBlocks = computeFreeBlocks(windowEvents, effectiveStart, meta.day_end_min);
   const freeTotal = freeBlocks.reduce((a, b) => a + (b.end - b.start), 0);
   const bestBlock = freeBlocks.length > 0
     ? freeBlocks.reduce((a, b) => (b.end - b.start) > (a.end - a.start) ? b : a)
