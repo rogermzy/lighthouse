@@ -340,8 +340,16 @@ extension AppDelegate: WKNavigationDelegate {
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow); return
         }
+        // Internal schemes the WebKit engine uses — allow them through so
+        // we don't try to "open in default browser" the splash's about:blank
+        // or any data: URI. macOS has no handler for about:blank and would
+        // surface "There is no application set to open the URL about:blank."
+        let scheme = (url.scheme ?? "").lowercased()
+        if scheme == "about" || scheme == "data" || scheme == "blob" || url.isFileURL {
+            decisionHandler(.allow); return
+        }
         let host = url.host ?? ""
-        let isLocal = host == "127.0.0.1" || host == "localhost" || url.isFileURL
+        let isLocal = host == "127.0.0.1" || host == "localhost"
         if isLocal {
             decisionHandler(.allow)
         } else {
@@ -353,11 +361,15 @@ extension AppDelegate: WKNavigationDelegate {
 
 extension AppDelegate: WKUIDelegate {
     // Handle `target="_blank"` and window.open() — route to default browser.
+    // Same scheme filter as the navigation delegate: don't try to hand
+    // about:/data:/blob: URIs to NSWorkspace.
     func webView(_ webView: WKWebView,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = navigationAction.request.url {
+        guard let url = navigationAction.request.url else { return nil }
+        let scheme = (url.scheme ?? "").lowercased()
+        if scheme == "http" || scheme == "https" || scheme == "mailto" {
             NSWorkspace.shared.open(url)
         }
         return nil
