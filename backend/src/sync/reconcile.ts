@@ -28,18 +28,25 @@ const markSyncError = db.prepare(`
   ON CONFLICT(source) DO UPDATE SET last_error = excluded.last_error
 `);
 
-// Roger-owned fields (lane, big_rock, done_at, tag, position) are NEVER
-// overwritten by a pull. Source-owned fields (title, note, project,
-// estimate_min, due, url) are refreshed on every tick. New rows land at the
-// bottom of This month (max(position) + 1) — the user explicitly triages
-// from there into This week / Today, or lets decay push them to Backlog.
+// Roger-owned fields (lane, big_rock, tag, position) are NEVER overwritten by
+// a pull. Source-owned fields (title, note, project, estimate_min, due, url)
+// are refreshed on every tick. New rows land at the bottom of This month
+// (max(position) + 1) — the user explicitly triages from there into This
+// week / Today, or lets decay push them to Backlog.
+//
+// done_at is a special case: sync may SET it when the source reports the task
+// complete (so a task finished in ClickUp shows as done here too), but it
+// NEVER clears one that's already set — COALESCE(done_at, excluded.done_at)
+// keeps a local completion and won't let a source "reopen" resurrect a task
+// the user already checked off. :done_at is the source's completion time
+// (ISO) or NULL when the source still considers the task open.
 const upsertTaskFromSource = db.prepare(`
   INSERT INTO tasks
     (id, source, external_id, title, note, project, tag, estimate_min, due, url, lane, big_rock, position, done_at, created_at, updated_at)
   VALUES
     (:id, :source, :external_id, :title, :note, :project, NULL, :estimate_min, :due, :url, 'this_month', 0,
      (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE lane = 'this_month'),
-     NULL, :now, :now)
+     :done_at, :now, :now)
   ON CONFLICT(source, external_id) DO UPDATE SET
     title        = excluded.title,
     note         = excluded.note,
@@ -47,6 +54,7 @@ const upsertTaskFromSource = db.prepare(`
     estimate_min = excluded.estimate_min,
     due          = excluded.due,
     url          = excluded.url,
+    done_at      = COALESCE(done_at, excluded.done_at),
     updated_at   = excluded.updated_at
 `);
 
@@ -129,6 +137,7 @@ export function upsertTasksFromSource(source: string, tasks: UnifiedTask[]): voi
         estimate_min: t.estimateMin ?? null,
         due: t.due ?? null,
         url: t.url ?? null,
+        done_at: t.doneAt ?? null,
         now,
       });
     }

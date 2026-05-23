@@ -31,7 +31,7 @@ Valid source names: `gcal`, `gmail`, `gtasks`, `clickup`, `notion`, `workflowy`,
 
 - **Frontend** (repo root): React 18 + Babel-standalone, no build step. `app.jsx`, `pages.jsx`, `data.jsx`, `styles.css`, `Lighthouse Dashboard.html`.
 - **Backend** (`backend/`): Hono server on Node 24's built-in `node:sqlite`. One process handles HTTP, the sync loop, OAuth, and two Claude agents (enrichment + suggest).
-- **Data model**: one `tasks` table is the unified pool. External items upsert by `(source, external_id)`. Roger-owned fields (`lane`, `position`, `done_at`, `big_rock`, `tag`) are NEVER overwritten by sync; source-owned fields (`title`, `note`, `project`, `estimate_min`, `due`, `url`) refresh every tick. Logic lives in `backend/src/sync/reconcile.ts`.
+- **Data model**: one `tasks` table is the unified pool. External items upsert by `(source, external_id)`. Roger-owned fields (`lane`, `position`, `big_rock`, `tag`) are NEVER overwritten by sync; source-owned fields (`title`, `note`, `project`, `estimate_min`, `due`, `url`) refresh every tick. `done_at` is special: sync may SET it when the source reports a task complete (so a task finished in the source shows as done here too), but never CLEARS one already set — `COALESCE(done_at, excluded.done_at)` — so a source can't resurrect a task Roger already checked off. Logic lives in `backend/src/sync/reconcile.ts`.
 - **DB**: `backend/data.db` — SQLite WAL mode, single file. Holds tasks, journal, goals, enrichment cache, sync state. Read-then-write paths use `BEGIN IMMEDIATE` so concurrent PATCHes can't race.
 
 ## Files that matter when changing things
@@ -56,7 +56,7 @@ Valid source names: `gcal`, `gmail`, `gtasks`, `clickup`, `notion`, `workflowy`,
 ## Connector gotchas
 
 - **Google**: re-consent required if scopes are added. Current scopes: `calendar.events.readonly`, `gmail.readonly`, `tasks`. Symptom of stale token: `403 Insufficient Permission` in `lastError`.
-- **ClickUp**: status names are list-specific. `setDone` discovers the list's `type:"closed"` status dynamically; falls back to archive if discovery fails.
+- **ClickUp**: status names are list-specific. `setDone` discovers the list's `type:"closed"` status dynamically; falls back to archive if discovery fails. **`done` ≠ `closed`**: ClickUp status `type` is `open｜custom｜done｜closed`, and `include_closed=false` only filters out `type:"closed"`. A task in a `done`-type status (the usual "mark it done" action — sets `date_done` but leaves `date_closed` null) STAYS in the pull, so the connector reads `date_done`/`status.type` and reports completion via `UnifiedTask.doneAt`; reconcile then sets the local `done_at`. Without this, done-but-not-closed tasks linger as open forever.
 - **Notion**: the integration must be explicitly shared with each database via the "···" → Connect to menu. Otherwise the API returns `object_not_found`.
 - **Things 3**: Mac-only, shells out to `osascript`. First sync triggers a macOS Automation permission prompt.
 - **flomo**: RSS pull needs flomo PRO. Webhook push tags every entry `#lighthouse` so the RSS pull skips re-importing it (circular-sync guard).

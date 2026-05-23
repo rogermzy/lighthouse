@@ -7,11 +7,28 @@ type ClickUpTask = {
   id: string;
   name: string;
   description?: string;
-  status?: { status?: string };
+  // ClickUp status `type` is one of: open | custom | done | closed. "done" and
+  // "closed" are BOTH completion states, but only "closed" is filtered out by
+  // include_closed=false — a "done" task stays in the pull, so we must detect
+  // it here. date_done is set whenever a task enters a done/closed status.
+  status?: { status?: string; type?: string };
+  date_done?: string | null;
+  date_closed?: string | null;
   due_date?: string | null;
   time_estimate?: number | null; // milliseconds
   list?: { name?: string };
 };
+
+// A ClickUp task is complete if it carries a completion timestamp (date_done
+// is set on entering any done/closed status) or sits in a done/closed-type
+// status. Returns the completion time as ISO, or undefined if still open.
+function completedAtIso(t: ClickUpTask): string | undefined {
+  const epoch = t.date_done || t.date_closed;
+  const completed = Boolean(epoch) || t.status?.type === "done" || t.status?.type === "closed";
+  if (!completed) return undefined;
+  const ms = Number(epoch);
+  return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : new Date().toISOString();
+}
 
 function relativeDue(epochMs: string | null | undefined): string | undefined {
   if (!epochMs) return undefined;
@@ -60,6 +77,7 @@ export const clickupConnector: Connector = {
       estimateMin: t.time_estimate ? Math.round(t.time_estimate / 60_000) : undefined,
       due: relativeDue(t.due_date),
       url: `https://app.clickup.com/t/${t.id}`,
+      doneAt: completedAtIso(t),
     }));
 
     upsertTasksFromSource("clickup", tasks);

@@ -47,4 +47,12 @@ export type UnifiedTask = {
    * "Open in {Source} ↗" in the task detail modal. Optional — sources
    * without a useful per-task URL (e.g. Google Tasks) leave it unset. */
   url?: string | null;
+  /**
+   * ISO timestamp of when the source marked this task complete, if it did.
+   * Most connectors only pull OPEN items, so they leave this unset and let
+   * reconcile prune anything that drops out of the pull. ClickUp is the
+   * exception: a "done"-type status (distinct from "closed") keeps the task
+   * in the `include_closed=false` pull, so the connector reports completion
+   * here and reconcile propagates it to the local `done_at`. */
+  doneAt?: string | null;
 };
