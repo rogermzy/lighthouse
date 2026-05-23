@@ -1726,6 +1726,34 @@ function App() {
     }
   };
 
+  // "Mark done" on a brain-dump item. An inbox row has no done state of its
+  // own — it isn't in the tasks table — so we promote it to a real task (via
+  // the normal triage path, which lands it in This week) and immediately mark
+  // that task done. This routes the completion through the standard done path
+  // (completions log, source write-back, hide-completed, mark-undone) instead
+  // of duplicating any of it. The intermediate open task is never rendered:
+  // we don't refresh until both calls resolve.
+  const completeInboxItem = async (id) => {
+    setTasks(prev => prev.filter(t => t.id !== id)); // optimistic: clear from brain dump
+    try {
+      const r = await fetch(`/api/inbox/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triaged_to: "later" }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.createdTaskId) {
+        await toggleDone(body.createdTaskId);
+      } else if (!r.ok) {
+        setToast({ kind: "warn", text: body.message || `Couldn't mark done (${r.status}).` });
+      }
+    } catch (err) {
+      console.warn("completeInboxItem failed:", err);
+    } finally {
+      await refreshTasks();
+    }
+  };
+
   /**
    * User picked a today task to demote so the pending add can take its place.
    *   PATCH chosen → ondeck → refresh → re-fire the original action → close modal.
@@ -2193,6 +2221,16 @@ function App() {
           } finally {
             await refreshTasks();
           }
+        }}
+        onTriageInbox={(id, where) => {
+          // Triage from the detail modal: close, then route through the same
+          // cap-aware handler the brain-dump rows use.
+          setDetailTaskId(null);
+          triageInbox(id, where);
+        }}
+        onCompleteInbox={(id) => {
+          setDetailTaskId(null);
+          completeInboxItem(id);
         }}
       />
 

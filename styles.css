@@ -1426,6 +1426,8 @@ input, textarea {
 .inbox-page-row:last-child { border-bottom: 0; }
 .inbox-page-row:hover { background: var(--paper-2); }
 .inbox-page-row:hover .inbox-page-actions { opacity: 1; }
+.inbox-page-row-clickable { cursor: pointer; }
+.inbox-page-row-clickable:hover .inbox-page-title { color: var(--accent); }
 .inbox-page-main { min-width: 0; }
 .inbox-page-title {
   font-size: 14px;

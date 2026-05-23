@@ -554,7 +554,11 @@ function TasksPage({
               <div className="empty-state-sub">Anything that pops into your head, drop it in the box above.</div>
             </div>
           ) : visible.map(it => (
-            <div key={it.id} className="inbox-page-row">
+            <div
+              key={it.id}
+              className="inbox-page-row inbox-page-row-clickable"
+              onClick={() => onOpenDetail?.(it.id)}
+              title="Open detail">
               <span className="inbox-source" style={{ background: SOURCES[it.source]?.color || "var(--muted-2)", width: 18, height: 18, fontSize: 10 }}>
                 {SOURCES[it.source]?.glyph || "·"}
               </span>
@@ -565,9 +569,9 @@ function TasksPage({
                 </div>
               </div>
               <div className="inbox-page-actions">
-                <button onClick={() => triage(it.id, "today")} className="action today">→ Today</button>
-                <button onClick={() => triage(it.id, "later")} className="action later">This week</button>
-                <button onClick={() => triage(it.id, "drop")}  className="action drop">Drop</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "today"); }} className="action today">→ Today</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "later"); }} className="action later">This week</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "drop"); }}  className="action drop">Drop</button>
               </div>
             </div>
           ))}
@@ -2687,13 +2691,18 @@ function SyncStatusLine({ sync, msg, label }) {
    full description, source meta, agent reasoning, and gives
    one-click access to common state changes.
    ───────────────────────────────────────────────────────────── */
-function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLane, onTogglePin }) {
+function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLane, onTogglePin, onTriageInbox, onCompleteInbox }) {
   if (!open || !task) return null;
   const source = SOURCES[task.source];
   const tag = TAGS[task.tag];
   const w = typeof task.weight === "number" ? task.weight : null;
   const weightCls = w === null ? "none" : w >= 0.7 ? "high" : w >= 0.3 ? "mid" : "low";
   const isDone = Boolean(task.doneAt);
+  // Brain-dump items live in inbox_items, not the tasks table — the generic
+  // lane picker / pin / mark-done all PATCH /api/tasks/:id and would 404 on
+  // them. For these, show triage (Today / This week / Drop) plus a "Mark done"
+  // that promotes-then-completes through the real done path.
+  const isInbox = task.lane === "inbox";
 
   const goal = React.useMemo(() => {
     if (!task.primaryGoalId || !goals) return null;
@@ -2787,7 +2796,9 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
           <pre className="task-detail-note">{task.note}</pre>
         ) : (
           <div className="task-detail-note-empty">
-            No description on the source row. {source ? `Add one in ${source.label} and it'll sync over.` : ""}
+            {isInbox
+              ? "A captured thought. Triage it into a lane, mark it done if it's already handled, or drop it."
+              : `No description on the source row. ${source ? `Add one in ${source.label} and it'll sync over.` : ""}`}
           </div>
         )}
 
@@ -2797,35 +2808,49 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
           {task.doneAt   && <span><b>Done</b> · {new Date(task.doneAt).toLocaleString()}</span>}
         </div>
 
-        <div className="task-detail-actions">
-          <div className="task-detail-lane-picker">
-            <span className="task-detail-lane-label">Lane</span>
-            {LANES.map(l => (
-              <button
-                key={l.id}
-                className={`task-detail-lane-btn ${task.lane === l.id ? "active" : ""}`}
-                onClick={() => onChangeLane?.(task.id, l.id)}>
-                {l.label}
-              </button>
-            ))}
-          </div>
-          {/* Pin toggle — only meaningful for the planning lanes (this_week,
-              this_month, backlog). Hidden on now/today because those are
-              already committed; pin is for "queue this up next". */}
-          {onTogglePin && task.lane !== "now" && task.lane !== "today" && (
-            <button
-              className={`rec-defer ${task.pinned ? "active" : ""}`}
-              title={task.pinned ? "Unpin" : "Pin — promote next when Today opens up"}
-              onClick={() => onTogglePin(task.id, !task.pinned)}>
-              {task.pinned ? "📌 Pinned" : "📌 Pin for next"}
+        {isInbox ? (
+          <div className="task-detail-actions">
+            <div className="task-detail-lane-picker">
+              <span className="task-detail-lane-label">Triage</span>
+              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "today")}>→ Today</button>
+              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "later")}>This week</button>
+              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "drop")}>Drop</button>
+            </div>
+            <button className="modal-primary" onClick={() => onCompleteInbox?.(task.id)}>
+              Mark done
             </button>
-          )}
-          <button
-            className={`modal-primary ${isDone ? "secondary" : ""}`}
-            onClick={() => onToggleDone?.(task.id)}>
-            {isDone ? "✓ Mark undone" : "Mark done"}
-          </button>
-        </div>
+          </div>
+        ) : (
+          <div className="task-detail-actions">
+            <div className="task-detail-lane-picker">
+              <span className="task-detail-lane-label">Lane</span>
+              {LANES.map(l => (
+                <button
+                  key={l.id}
+                  className={`task-detail-lane-btn ${task.lane === l.id ? "active" : ""}`}
+                  onClick={() => onChangeLane?.(task.id, l.id)}>
+                  {l.label}
+                </button>
+              ))}
+            </div>
+            {/* Pin toggle — only meaningful for the planning lanes (this_week,
+                this_month, backlog). Hidden on now/today because those are
+                already committed; pin is for "queue this up next". */}
+            {onTogglePin && task.lane !== "now" && task.lane !== "today" && (
+              <button
+                className={`rec-defer ${task.pinned ? "active" : ""}`}
+                title={task.pinned ? "Unpin" : "Pin — promote next when Today opens up"}
+                onClick={() => onTogglePin(task.id, !task.pinned)}>
+                {task.pinned ? "📌 Pinned" : "📌 Pin for next"}
+              </button>
+            )}
+            <button
+              className={`modal-primary ${isDone ? "secondary" : ""}`}
+              onClick={() => onToggleDone?.(task.id)}>
+              {isDone ? "✓ Mark undone" : "Mark done"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
