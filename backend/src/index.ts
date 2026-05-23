@@ -99,7 +99,12 @@ app.get("/*", async (c) => {
   });
 });
 
-const PORT = Number(process.env.PORT ?? 3000);
+// Lighthouse listens on 7373 by default — moved off 3000 because that port
+// collides with other local dev servers (Next.js, Vite, etc.). Override with
+// the PORT env var. If you change this, also update: the Google OAuth redirect
+// URI registered in Google Cloud Console, oauth.ts's default, and the Mac
+// app's ServerManager/AppDelegate URLs.
+const PORT = Number(process.env.PORT ?? 7373);
 
 serve(
   { fetch: app.fetch, port: PORT, hostname: "127.0.0.1" },

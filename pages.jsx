@@ -3336,7 +3336,7 @@ function ApiDocs({ apiToken }) {
           <pre className="api-snippet">{ep.response}</pre>
 
           <div className="api-subhead">Example</div>
-          <pre className="api-snippet">{`curl -X POST http://127.0.0.1:3000${ep.path} \\
+          <pre className="api-snippet">{`curl -X POST http://127.0.0.1:7373${ep.path} \\
   -H "Authorization: Bearer ${tokenForCurl}" \\
   -H "Content-Type: application/json" \\
   -d '${ep.body}'`}</pre>

@@ -19,11 +19,11 @@ Operating notes for the install flow:
 | Want to | Run |
 |---|---|
 | Start in dev (auto-restart on file change) | `cd backend && npm run dev` |
-| Start in foreground | `cd backend && npm start` → http://127.0.0.1:3000 |
-| Check all connectors' health | `curl -s http://127.0.0.1:3000/api/sync \| jq` |
-| Force-sync one source | `curl -X POST http://127.0.0.1:3000/api/sync/<source>` |
-| Inspect today's calendar | `curl -s http://127.0.0.1:3000/api/calendar/today \| jq` |
-| Open the UI | `open http://127.0.0.1:3000` |
+| Start in foreground | `cd backend && npm start` → http://127.0.0.1:7373 |
+| Check all connectors' health | `curl -s http://127.0.0.1:7373/api/sync \| jq` |
+| Force-sync one source | `curl -X POST http://127.0.0.1:7373/api/sync/<source>` |
+| Inspect today's calendar | `curl -s http://127.0.0.1:7373/api/calendar/today \| jq` |
+| Open the UI | `open http://127.0.0.1:7373` |
 
 Valid source names: `gcal`, `gmail`, `gtasks`, `clickup`, `notion`, `workflowy`, `things`.
 

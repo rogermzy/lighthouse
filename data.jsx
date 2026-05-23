@@ -1,4 +1,4 @@
-// Phase 1: data is fetched from the local backend (Hono + SQLite at :3000).
+// Phase 1: data is fetched from the local backend (Hono + SQLite at :7373).
 // Static config (SOURCES, TAGS, formatters, getSuggestions) stays client-side.
 // TASKS/WEEK/CALENDAR/FREE_*/GOALS are filled in via window.__dataReady.
 

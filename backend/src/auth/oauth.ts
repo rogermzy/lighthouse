@@ -81,7 +81,7 @@ export function invalidateOAuthCache(): void {
 }
 
 function redirectUri(): string {
-  const port = process.env.PORT ?? "3000";
+  const port = process.env.PORT ?? "7373";
   return process.env.GOOGLE_REDIRECT_URI ?? `http://127.0.0.1:${port}/auth/google/callback`;
 }
 

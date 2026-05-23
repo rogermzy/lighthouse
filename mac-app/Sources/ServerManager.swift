@@ -6,7 +6,7 @@ import Foundation
 /// asynchronously.
 class ServerManager {
     private var process: Process?
-    private let serverURL = URL(string: "http://127.0.0.1:3000/api/meta")!
+    private let serverURL = URL(string: "http://127.0.0.1:7373/api/meta")!
     private(set) var lastError: String?
 
     /// Path the user wants Lighthouse to run from. Defaults to ~/claude/adhd/backend
@@ -20,13 +20,13 @@ class ServerManager {
     }
 
     func start(completion: @escaping (Bool) -> Void) {
-        // If something is already listening on :3000 (likely the user already
+        // If something is already listening on :7373 (likely the user already
         // ran `npm start` in a terminal), reuse it rather than fighting for
         // the port. The app's job is to put a window on the server, not to
         // own it exclusively.
         checkServerAlive { [weak self] alive in
             if alive {
-                NSLog("[Lighthouse] server already running on :3000 — reusing")
+                NSLog("[Lighthouse] server already running on :7373 — reusing")
                 completion(true)
                 return
             }
@@ -115,7 +115,7 @@ class ServerManager {
 
     private func waitForServer(retries: Int, completion: @escaping (Bool) -> Void) {
         if retries <= 0 {
-            lastError = "Server didn't respond on :3000 after 15s. Check ~/Library/Logs/Lighthouse.log."
+            lastError = "Server didn't respond on :7373 after 15s. Check ~/Library/Logs/Lighthouse.log."
             completion(false)
             return
         }

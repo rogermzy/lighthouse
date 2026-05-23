@@ -37,7 +37,7 @@ You can leave the app in "Testing" mode indefinitely for personal use.
 - **Authorized redirect URIs:** add exactly
 
   ```
-  http://127.0.0.1:3000/auth/google/callback
+  http://127.0.0.1:7373/auth/google/callback
   ```
 
   (If you change `PORT` in `.env`, the redirect URI has to match.)
@@ -138,7 +138,7 @@ You should see:
 [lighthouse] google: configured but not connected — visit /auth/google to connect
 ```
 
-Open <http://127.0.0.1:3000/auth/google> in your browser. Sign in, accept the scopes, and Google will redirect you back to the dashboard. From here on, the calendar widget shows your real day and the brain dump fills with `Lighthouse`-labeled messages.
+Open <http://127.0.0.1:7373/auth/google> in your browser. Sign in, accept the scopes, and Google will redirect you back to the dashboard. From here on, the calendar widget shows your real day and the brain dump fills with `Lighthouse`-labeled messages.
 
 The server stores your refresh token in `backend/.tokens.json` (gitignored, chmod 0600). Delete that file to disconnect.
 
@@ -146,7 +146,7 @@ The server stores your refresh token in `backend/.tokens.json` (gitignored, chmo
 
 If you connected Google before a new scope was added (e.g., we wired Google **Tasks** in a later release), your stored token won't carry the new permission. The relevant connector will surface `403 Insufficient Permission` in the Settings page sync status.
 
-Fix: visit `http://127.0.0.1:3000/auth/google` again. Google re-prompts; accept; the new token lands with all current scopes. Existing Calendar + Gmail sync keep working through the re-grant.
+Fix: visit `http://127.0.0.1:7373/auth/google` again. Google re-prompts; accept; the new token lands with all current scopes. Existing Calendar + Gmail sync keep working through the re-grant.
 
 Current Google scopes: `calendar.events.readonly`, `gmail.readonly`, `tasks.readonly`.
 

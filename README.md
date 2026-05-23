@@ -94,7 +94,7 @@ Quick start (after configuring `backend/.env`):
 cd backend
 npm install
 npm start
-# → http://127.0.0.1:3000
+# → http://127.0.0.1:7373
 ```
 
 ## Mac app

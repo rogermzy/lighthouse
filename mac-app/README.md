@@ -13,7 +13,7 @@ A tiny native Mac app that wraps Lighthouse. Spawns the Node backend on launch, 
 - Closing the window doesn't quit — Dock click brings it back
 - External links (`target="_blank"`, "Open in ClickUp ↗") route to your default browser instead of detouring the dashboard window
 - Logs at `~/Library/Logs/Lighthouse.log` for diagnosis
-- If you already have `npm start` running in a terminal, the app reuses that server instead of fighting for port 3000
+- If you already have `npm start` running in a terminal, the app reuses that server instead of fighting for port 7373
 
 ## Build
 
@@ -55,10 +55,10 @@ defaults delete com.rogermzy.lighthouse LighthouseBackendPath
 
 ## What it does on launch
 
-1. Checks if `http://127.0.0.1:3000/api/meta` is already responding. If yes, just points the webview at it.
+1. Checks if `http://127.0.0.1:7373/api/meta` is already responding. If yes, just points the webview at it.
 2. Otherwise, spawns `node node_modules/.bin/tsx src/index.ts` from the backend folder.
 3. Polls every 500ms for up to 15 seconds until the API responds.
-4. Loads `http://127.0.0.1:3000` in the embedded WKWebView.
+4. Loads `http://127.0.0.1:7373` in the embedded WKWebView.
 5. While polling, shows a loading screen (cream paper, accent spinner) — matches the dashboard's design vocabulary.
 
 If the server fails to start, you get a native alert with the underlying error and the option to Retry or Quit.

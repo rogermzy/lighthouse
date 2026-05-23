@@ -67,7 +67,7 @@ Leave the app in "Testing" mode indefinitely.
 **APIs & Services → Credentials → Create credentials → OAuth client ID.**
 - Application type: **Web application**
 - Name: `Lighthouse local`
-- Authorized redirect URIs: exactly `http://127.0.0.1:3000/auth/google/callback`
+- Authorized redirect URIs: exactly `http://127.0.0.1:7373/auth/google/callback`
 
 Copy the Client ID and Client Secret.
 
@@ -89,11 +89,11 @@ Expect the boot line `[lighthouse] google: keys set, visit /auth/google to conne
 
 ### 3f. Complete OAuth
 
-Tell the user: "Open `http://127.0.0.1:3000/auth/google` in your browser, sign in, and accept the scopes."
+Tell the user: "Open `http://127.0.0.1:7373/auth/google` in your browser, sign in, and accept the scopes."
 
 **Verify**:
 ```bash
-curl -s http://127.0.0.1:3000/api/sync | jq '.syncs[] | select(.source=="gcal")'
+curl -s http://127.0.0.1:7373/api/sync | jq '.syncs[] | select(.source=="gcal")'
 ```
 `enabled` should be `true`. `lastError` may still be `null` until the first sync tick (≤ 60 seconds) — re-run if so.
 
@@ -116,7 +116,7 @@ CLICKUP_USER_ID=…
 
 **Verify** (after server restart, then 30 sec for first tick):
 ```bash
-curl -s http://127.0.0.1:3000/api/sync | jq '.syncs[] | select(.source=="clickup")'
+curl -s http://127.0.0.1:7373/api/sync | jq '.syncs[] | select(.source=="clickup")'
 ```
 Expect `enabled: true`, `lastError: null`.
 
@@ -168,23 +168,23 @@ Wait ~30 seconds for the first sync tick.
 
 **Per-connector health:**
 ```bash
-curl -s http://127.0.0.1:3000/api/sync | jq
+curl -s http://127.0.0.1:7373/api/sync | jq
 ```
 Every connector the user configured should show `enabled: true`, `lastError: null`. Anything red — read the error and cross-reference the "Common errors" table below.
 
 **Calendar:**
 ```bash
-curl -s http://127.0.0.1:3000/api/calendar/today | jq '.calendar.events | length'
+curl -s http://127.0.0.1:7373/api/calendar/today | jq '.calendar.events | length'
 ```
 Should return a number (0 is fine if the user has no events today).
 
 **Tasks:**
 ```bash
-curl -s http://127.0.0.1:3000/api/tasks | jq '. | length'
+curl -s http://127.0.0.1:7373/api/tasks | jq '. | length'
 ```
 Should return a number.
 
-If both return numbers and `/api/sync` is all green, you're done. Tell the user: open <http://127.0.0.1:3000>.
+If both return numbers and `/api/sync` is all green, you're done. Tell the user: open <http://127.0.0.1:7373>.
 
 ## Common errors
 

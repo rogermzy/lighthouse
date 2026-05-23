@@ -17,7 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         // Kill the Node child process so we don't leave a zombie server
-        // hogging port 3000 after the app quits.
+        // hogging port 7373 after the app quits.
         serverManager?.stop()
     }
 
@@ -116,7 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if success {
-                    self.webView?.load(URLRequest(url: URL(string: "http://127.0.0.1:3000")!))
+                    self.webView?.load(URLRequest(url: URL(string: "http://127.0.0.1:7373")!))
                 } else {
                     self.showServerError(detail: manager.lastError ?? "Unknown error.")
                 }
@@ -283,7 +283,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // rebuild it so the menu/Dock click doesn't silently no-op.
         if window == nil {
             setupWindow()
-            if let manager = serverManager, let url = URL(string: "http://127.0.0.1:3000") {
+            if let manager = serverManager, let url = URL(string: "http://127.0.0.1:7373") {
                 _ = manager  // keep ref alive
                 webView?.load(URLRequest(url: url))
             }
@@ -303,7 +303,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openInBrowser() {
-        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:3000")!)
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:7373")!)
     }
 
     @objc private func viewLogs() {
