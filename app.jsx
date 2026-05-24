@@ -1527,6 +1527,21 @@ function App() {
       const merged = [...taskList, ...inboxList];
       setTasks(merged);
       window.TASKS = merged; // keep the global in sync for legacy free-variable consumers
+      // Fold any server-confirmed completions into doneSet. Completions can now
+      // arrive from sync (e.g. a task marked done in ClickUp), not just local
+      // toggles — without this, a synced done task would come back with done_at
+      // set but render as open because the UI keys off doneSet, not done_at.
+      // Union only (never remove): preserves optimistic local toggles, and a
+      // genuine local un-done already cleared done_at server-side so it won't
+      // be re-added.
+      setDoneSet(prev => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const t of taskList) {
+          if (t.doneAt && !next.has(t.id)) { next.add(t.id); changed = true; }
+        }
+        return changed ? next : prev;
+      });
     } catch (err) {
       if (err?.name === "AbortError") return;
       console.warn("refreshTasks failed:", err);
