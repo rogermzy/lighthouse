@@ -1019,6 +1019,32 @@ function OnDeckRow({ task: t, done, toggleDone, dueClass, dimmed, onOpenDetail, 
 }
 
 /* ─────────────────────── right rail components ─────────────────────── */
+// Encouragement scales with the day's completion count. Pure function of n —
+// no state, no cost — so it recomputes live as tasks are checked off/undone.
+function doneEncouragement(n) {
+  if (n === 0) return "A fresh page. Pick one small thing.";
+  if (n === 1) return "One done — the hardest part was starting.";
+  if (n === 2) return "Two down. You've got momentum.";
+  if (n <= 4)  return `${n} today. You're in a groove.`;
+  return `${n} today. That's a strong day, Roger.`;
+}
+
+function DoneTodayCard({ count }) {
+  return (
+    <div className="rail-card tinted done-card">
+      <div className="rail-head">
+        <h3>Done today</h3>
+        <span className="muted">✦ keep going</span>
+      </div>
+      <div className="done-stat">
+        <span className="done-num">{count}</span>
+        <span className="done-label">{count === 1 ? "task" : "tasks"}</span>
+      </div>
+      <div className="done-encourage">{doneEncouragement(count)}</div>
+    </div>
+  );
+}
+
 function WeekGlance() {
   return (
     <div className="rail-card">
@@ -1463,6 +1489,19 @@ function App() {
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }, [journal, startOfTodayMs]);
 
+  // Tasks checked off today, across every lane — feeds the "Done today" rail
+  // card. Keyed off doneSet (live: updates the instant a checkbox flips) rather
+  // than the server's done_at, which only lands on the local task after a
+  // refresh. The done_at clause drops tasks completed on earlier days while
+  // still counting a just-toggled one (whose local done_at is null → today).
+  // doneSet.has() gates it, so an accidental check + undo nets back to zero.
+  const doneToday = useMemo(() =>
+    tasks.filter(t =>
+      doneSet.has(t.id) &&
+      (!t.doneAt || new Date(t.doneAt).getTime() >= startOfTodayMs)
+    ).length,
+    [tasks, doneSet, startOfTodayMs]);
+
   const refreshJournal = useCallback(async (dateArg) => {
     // Read current selection at call time so callers don't have to pass it explicitly.
     const date = dateArg !== undefined ? dateArg : journalSelectedDate;
@@ -1769,6 +1808,32 @@ function App() {
     }
   };
 
+  // "Pin for next" on a brain-dump item. Like completeInboxItem, an inbox row
+  // isn't a real task yet, so we triage it into This week (the up-next queue's
+  // home lane), then pin the freshly-created task through the normal task-pin
+  // path — which enforces the 5-pin cap and toasts on overflow. If the pin
+  // fails the task still lives in This week; nothing is lost.
+  const pinInbox = async (id) => {
+    setTasks(prev => prev.filter(t => t.id !== id)); // optimistic: leave the inbox
+    try {
+      const r = await fetch(`/api/inbox/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triaged_to: "this_week" }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.createdTaskId) {
+        await togglePin(body.createdTaskId, true); // togglePin refreshes + cap-toasts
+      } else {
+        if (!r.ok) setToast({ kind: "warn", text: body.message || `Couldn't pin (${r.status}).` });
+        await refreshTasks();
+      }
+    } catch (err) {
+      console.warn("pinInbox failed:", err);
+      await refreshTasks();
+    }
+  };
+
   /**
    * User picked a today task to demote so the pending add can take its place.
    *   PATCH chosen → ondeck → refresh → re-fire the original action → close modal.
@@ -1914,6 +1979,7 @@ function App() {
         <TasksPage
           inbox={inbox}
           triage={triageInbox}
+          onCompleteInbox={completeInboxItem}
           addInboxItem={addInboxItem}
           weekSlot={
             <OnDeck
@@ -2073,6 +2139,7 @@ function App() {
           />
         ) : (
           <>
+            <DoneTodayCard count={doneToday} />
             <CalendarCard
               focusTask={tasksByLane.now}
               onSchedule={() => setScheduled(s => !s)}
@@ -2246,6 +2313,10 @@ function App() {
         onCompleteInbox={(id) => {
           setDetailTaskId(null);
           completeInboxItem(id);
+        }}
+        onPinInbox={(id) => {
+          setDetailTaskId(null);
+          pinInbox(id);
         }}
       />
 

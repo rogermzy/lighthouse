@@ -437,7 +437,7 @@ function quickLaneActionsForRow(lane) {
 }
 
 function TasksPage({
-  inbox, triage, addInboxItem,
+  inbox, triage, onCompleteInbox, addInboxItem,
   weekSlot,
   thisMonthTasks, backlogTasks,
   allTasks, goals,
@@ -559,6 +559,12 @@ function TasksPage({
               className="inbox-page-row inbox-page-row-clickable"
               onClick={() => onOpenDetail?.(it.id)}
               title="Open detail">
+              <button
+                className="check check-btn"
+                onClick={(e) => { e.stopPropagation(); onCompleteInbox?.(it.id); }}
+                aria-label="Mark done">
+                <Icon.check />
+              </button>
               <span className="inbox-source" style={{ background: SOURCES[it.source]?.color || "var(--muted-2)", width: 18, height: 18, fontSize: 10 }}>
                 {SOURCES[it.source]?.glyph || "·"}
               </span>
@@ -569,9 +575,11 @@ function TasksPage({
                 </div>
               </div>
               <div className="inbox-page-actions">
-                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "today"); }} className="action today">→ Today</button>
-                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "later"); }} className="action later">This week</button>
-                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "drop"); }}  className="action drop">Drop</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "today"); }}      className="action today">→ Today</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "this_week"); }}  className="action">→ Week</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "this_month"); }} className="action">→ Month</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "backlog"); }}    className="action">→ Later</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "drop"); }}       className="action drop">Drop</button>
               </div>
             </div>
           ))}
@@ -2691,7 +2699,7 @@ function SyncStatusLine({ sync, msg, label }) {
    full description, source meta, agent reasoning, and gives
    one-click access to common state changes.
    ───────────────────────────────────────────────────────────── */
-function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLane, onTogglePin, onTriageInbox, onCompleteInbox }) {
+function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLane, onTogglePin, onTriageInbox, onCompleteInbox, onPinInbox }) {
   if (!open || !task) return null;
   const source = SOURCES[task.source];
   const tag = TAGS[task.tag];
@@ -2700,8 +2708,10 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
   const isDone = Boolean(task.doneAt);
   // Brain-dump items live in inbox_items, not the tasks table — the generic
   // lane picker / pin / mark-done all PATCH /api/tasks/:id and would 404 on
-  // them. For these, show triage (Today / This week / Drop) plus a "Mark done"
-  // that promotes-then-completes through the real done path.
+  // them. So their controls route through the inbox endpoints instead: the
+  // lane buttons *triage* (create the task in that lane), Pin triages to Week
+  // then pins, Done promotes-then-completes, and Drop discards. Same buttons
+  // as a real task — just a different plumbing underneath, plus a Drop.
   const isInbox = task.lane === "inbox";
 
   const goal = React.useMemo(() => {
@@ -2720,9 +2730,9 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
   const LANES = [
     ...(task.lane === "now" || task.lane === "today" ? [{ id: "now", label: "Now" }] : []),
     { id: "today",      label: "Today" },
-    { id: "this_week",  label: "This week" },
-    { id: "this_month", label: "This month" },
-    { id: "backlog",    label: "Backlog" },
+    { id: "this_week",  label: "Week" },
+    { id: "this_month", label: "Month" },
+    { id: "backlog",    label: "Later" },
   ];
 
   return (
@@ -2811,13 +2821,28 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
         {isInbox ? (
           <div className="task-detail-actions">
             <div className="task-detail-lane-picker">
-              <span className="task-detail-lane-label">Triage</span>
-              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "today")}>→ Today</button>
-              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "later")}>This week</button>
-              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "drop")}>Drop</button>
+              <span className="task-detail-lane-label">Send to</span>
+              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "today")}>Today</button>
+              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "this_week")}>Week</button>
+              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "this_month")}>Month</button>
+              <button className="task-detail-lane-btn" onClick={() => onTriageInbox?.(task.id, "backlog")}>Later</button>
             </div>
+            {onPinInbox && (
+              <button
+                className="rec-defer"
+                title="Pin — send to This week and queue it up next"
+                onClick={() => onPinInbox(task.id)}>
+                📌 Pin for next
+              </button>
+            )}
+            <button
+              className="task-detail-lane-btn task-detail-drop"
+              title="Discard this thought"
+              onClick={() => onTriageInbox?.(task.id, "drop")}>
+              Drop
+            </button>
             <button className="modal-primary" onClick={() => onCompleteInbox?.(task.id)}>
-              Mark done
+              Done
             </button>
           </div>
         ) : (
@@ -2847,7 +2872,7 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
             <button
               className={`modal-primary ${isDone ? "secondary" : ""}`}
               onClick={() => onToggleDone?.(task.id)}>
-              {isDone ? "✓ Mark undone" : "Mark done"}
+              {isDone ? "✓ Mark undone" : "Done"}
             </button>
           </div>
         )}

@@ -95,7 +95,12 @@ app.get("/*", async (c) => {
   const body = await readFile(filePath);
   return c.body(body, 200, {
     "Content-Type": contentType,
-    "Cache-Control": "no-cache",
+    // no-store, not no-cache: there's no build step, so these files change in
+    // place during dev. `no-cache` lets a client store the response and revalidate,
+    // but we send no ETag/Last-Modified validator — so a WKWebView (the Mac app)
+    // can serve a stale cached copy. `no-store` forbids caching outright, which is
+    // free here since everything is local (127.0.0.1). Always fetch fresh.
+    "Cache-Control": "no-store",
   });
 });
 

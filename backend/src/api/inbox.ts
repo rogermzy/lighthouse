@@ -73,8 +73,12 @@ inboxApi.post("/", async (c) => {
 // (Dropping triage rows entirely flow through a separate code path.)
 const TRIAGE_TO_LANE: Record<string, string> = {
   today: "today",
-  later: "this_week",
+  later: "this_week",   // legacy alias — kept for existing callers
+  this_week: "this_week",
+  this_month: "this_month",
+  backlog: "backlog",
 };
+const TRIAGE_TARGETS = [...Object.keys(TRIAGE_TO_LANE), "drop"];
 
 const TODAY_CAP = 3;
 const countTodayUndone = db.prepare(
@@ -86,8 +90,8 @@ inboxApi.patch("/:id", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const triagedTo = String(body.triaged_to ?? body.triagedTo ?? "");
 
-  if (!["today", "later", "drop"].includes(triagedTo)) {
-    return c.json({ error: "triaged_to must be today|later|drop" }, 400);
+  if (!TRIAGE_TARGETS.includes(triagedTo)) {
+    return c.json({ error: `triaged_to must be one of: ${TRIAGE_TARGETS.join("|")}` }, 400);
   }
 
   const item = selectInboxById.get({ id }) as InboxRow | undefined;

@@ -787,6 +787,36 @@ input, textarea {
 }
 .rail-head .muted { color: var(--muted); font-size: 11px; }
 
+/* done-today card — the rail's motivational hero, so the count uses the
+   terracotta accent and the card sits tinted at the top of the rail */
+.done-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.done-num {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.done-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.done-encourage {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
 /* week glance */
 .week-grid {
   display: grid;
@@ -1426,7 +1456,14 @@ input, textarea {
 .inbox-page-row:last-child { border-bottom: 0; }
 .inbox-page-row:hover { background: var(--paper-2); }
 .inbox-page-row:hover .inbox-page-actions { opacity: 1; }
-.inbox-page-row-clickable { cursor: pointer; }
+/* TasksPage brain-dump rows carry a leading ✓ check, so they have 4 children
+   (check / source / title / actions), not the base row's 3. Widen the grid to
+   match — the 1fr stays on the title so it isn't shoved right by a stretched
+   source-icon column. The dedicated Inbox view keeps the base 3-col grid. */
+.inbox-page-row.inbox-page-row-clickable {
+  cursor: pointer;
+  grid-template-columns: auto auto 1fr auto;
+}
 .inbox-page-row-clickable:hover .inbox-page-title { color: var(--accent); }
 .inbox-page-main { min-width: 0; }
 .inbox-page-title {
@@ -3123,6 +3160,11 @@ textarea.editable-input { line-height: 1.5; }
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
+  /* flex-basis:0 so line-breaking reserves only one button's width for the
+     picker, not its full max-content. It then grows to absorb free space,
+     keeping the action buttons (pin / Mark done) on the same row instead of
+     bumping Mark done to its own line when the pin button is absent or wide. */
+  flex: 1 1 0;
 }
 .task-detail-lane-label {
   font-size: 10px;
@@ -3150,6 +3192,13 @@ textarea.editable-input { line-height: 1.5; }
   color: #fbf8f1;
   border-color: var(--accent);
   font-weight: 600;
+}
+/* Drop sits with the lane buttons but reads as a quiet discard until hovered */
+.task-detail-drop { color: var(--muted-2); }
+.task-detail-drop:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: transparent;
 }
 .modal-primary.secondary {
   background: transparent;
