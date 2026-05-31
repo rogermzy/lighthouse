@@ -1114,7 +1114,7 @@ function EnergyCard() {
   );
 }
 
-function InboxCard({ items, triage, onOpen }) {
+function InboxCard({ items, triage, onComplete, onOpenDetail, onOpen }) {
   return (
     <div className="rail-card">
       <div className="rail-head">
@@ -1125,15 +1125,23 @@ function InboxCard({ items, triage, onOpen }) {
       </div>
       <div>
         {items.slice(0, 4).map(it => (
-          <div key={it.id} className="inbox-row">
+          <div key={it.id} className="inbox-row" onClick={() => onOpenDetail?.(it.id)} title="Open detail">
+            <button
+              className="check check-btn"
+              onClick={(e) => { e.stopPropagation(); onComplete?.(it.id); }}
+              aria-label="Mark done">
+              <Icon.check />
+            </button>
             <span className="inbox-source" style={{ background: SOURCES[it.source].color }}>
               {SOURCES[it.source].glyph}
             </span>
             <div className="inbox-body">
               <span className="inbox-title">{it.title}</span>
               <div className="inbox-actions">
-                <button className="today" onClick={(e) => { e.stopPropagation(); triage(it.id, "today"); }}>→ Today</button>
-                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "later"); }}>Later</button>
+                <button className="today" onClick={(e) => { e.stopPropagation(); triage(it.id, "today"); }}>Today</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "this_week"); }}>Week</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "this_month"); }}>Month</button>
+                <button onClick={(e) => { e.stopPropagation(); triage(it.id, "backlog"); }}>Later</button>
                 <button onClick={(e) => { e.stopPropagation(); triage(it.id, "drop"); }}>Drop</button>
               </div>
             </div>
@@ -2151,7 +2159,9 @@ function App() {
               <InboxCard
                 items={inbox}
                 triage={triageInbox}
-                onOpen={() => setActiveView("inbox")}
+                onComplete={completeInboxItem}
+                onOpenDetail={openDetail}
+                onOpen={() => setActiveView("tasks")}
               />
             )}
           </>

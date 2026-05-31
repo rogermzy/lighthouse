@@ -4,121 +4,6 @@
 const { useState } = React;
 
 /* ─────────────────────────────────────────────────────────────
-   Inbox page — full capture / triage surface
-   ───────────────────────────────────────────────────────────── */
-function InboxPage({ inbox, triage, addItem }) {
-  const [draft, setDraft] = useState("");
-  const [filter, setFilter] = useState("all");
-
-  const visible = filter === "all"
-    ? inbox
-    : inbox.filter(it => it.source === filter);
-
-  const counts = Object.keys(SOURCES).reduce((a,k) => {
-    a[k] = inbox.filter(it => it.source === k).length;
-    return a;
-  }, {});
-
-  const submit = () => {
-    const v = draft.trim();
-    if (!v) return;
-    addItem(v);
-    setDraft("");
-  };
-
-  return (
-    <main className="main" data-screen-label="Inbox">
-      <div className="topbar">
-        <div>
-          <div className="greeting-eyebrow">
-            <span className="source-dot" style={{ background: "var(--muted)", display: "inline-block", marginRight: 6 }} />
-            Capture now · sort later
-          </div>
-          <h1 className="greeting">
-            Brain dump.<br/>
-            <em>{inbox.length} thought{inbox.length === 1 ? "" : "s"}</em> waiting to land.
-          </h1>
-        </div>
-      </div>
-
-      {/* Big capture box */}
-      <div className="capture-hero">
-        <Icon.plus style={{ color: "var(--muted)", flex: "0 0 auto" }} />
-        <input
-          autoFocus
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") submit(); }}
-          placeholder="What's in your head right now?"
-        />
-        <button className="capture-submit" onClick={submit}>
-          Capture <span className="kbd">⏎</span>
-        </button>
-      </div>
-
-      {/* Source filter chips */}
-      <div className="filter-row">
-        <button
-          className={`filter-chip ${filter === "all" ? "active" : ""}`}
-          onClick={() => setFilter("all")}>
-          All <span className="mono">{inbox.length}</span>
-        </button>
-        {Object.entries(SOURCES).map(([id, s]) => (
-          counts[id] > 0 && (
-            <button
-              key={id}
-              className={`filter-chip ${filter === id ? "active" : ""}`}
-              onClick={() => setFilter(id)}>
-              <span className="source-dot" style={{ background: s.color }} />
-              {s.label} <span className="mono">{counts[id]}</span>
-            </button>
-          )
-        ))}
-      </div>
-
-      {/* Inbox list */}
-      <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div className="section-head">
-          <div className="section-title">Unsorted</div>
-          <div className="section-meta">
-            Decide: <b>do today</b>, <b>later</b>, or <b>drop</b>. No fourth option.
-          </div>
-        </div>
-
-        <div className="inbox-page-list">
-          {visible.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon" />
-              <div className="empty-state-title">Nothing here.</div>
-              <div className="empty-state-sub">When something pops into your head, drop it in the box above.</div>
-            </div>
-          ) : visible.map(it => (
-            <div key={it.id} className="inbox-page-row">
-              <span className="inbox-source" style={{ background: SOURCES[it.source].color, width: 18, height: 18, fontSize: 10 }}>
-                {SOURCES[it.source].glyph}
-              </span>
-              <div className="inbox-page-main">
-                <div className="inbox-page-title">{it.title}</div>
-                <div className="inbox-page-meta">
-                  from {SOURCES[it.source].label}
-                  <span className="divider-dot" />
-                  captured just now
-                </div>
-              </div>
-              <div className="inbox-page-actions">
-                <button onClick={() => triage(it.id, "today")} className="action today">→ Today</button>
-                <button onClick={() => triage(it.id, "later")} className="action later">Later</button>
-                <button onClick={() => triage(it.id, "drop")}  className="action drop">Drop</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </main>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────
    Calendar page — full day view
    ───────────────────────────────────────────────────────────── */
 /* ─────────────────────────────────────────────────────────────
@@ -892,7 +777,7 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
   );
 }
 
-Object.assign(window, { InboxPage, CalendarPage, TasksPage });
+Object.assign(window, { CalendarPage, TasksPage });
 
 /* ─────────────────────────────────────────────────────────────
    Goals page
@@ -3428,4 +3313,4 @@ function ApiDocs({ apiToken }) {
   );
 }
 
-Object.assign(window, { InboxPage, CalendarPage, GoalsPage, SuggestionModal, SettingsPage, DemoteModal, JournalPage });
+Object.assign(window, { CalendarPage, GoalsPage, SuggestionModal, SettingsPage, DemoteModal, JournalPage });

@@ -916,7 +916,7 @@ input, textarea {
 /* inbox (rail widget) */
 .inbox-row {
   display: grid;
-  grid-template-columns: 18px 1fr;
+  grid-template-columns: auto 18px 1fr;
   align-items: flex-start;
   gap: 9px;
   padding: 9px 0;
@@ -949,13 +949,15 @@ input, textarea {
 }
 .inbox-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   opacity: 0.55;
   transition: opacity 0.12s ease;
 }
 .inbox-row:hover .inbox-actions { opacity: 1; }
 .inbox-actions button {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 44px;
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
