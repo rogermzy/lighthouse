@@ -56,6 +56,53 @@ const insertJournal = db.prepare(`
   INSERT INTO journal_entries (id, mood, note, created_at) VALUES (:id, :mood, :note, :created_at)
 `);
 
+// Open tasks in the agent's "today" frame: lane=now (the one Roger picked to
+// focus on) plus lane=today (the 3-cap shortlist). Now sorts above today so
+// the active task is index 0. Skips enrichment fields — those are UI hints
+// (theme/weight) that an agent doesn't need.
+const selectToday = db.prepare(`
+  SELECT id, source, external_id, title, note, project, tag,
+         estimate_min, due, lane, big_rock, pinned, position, url, done_at
+  FROM tasks
+  WHERE lane IN ('now', 'today') AND done_at IS NULL
+  ORDER BY CASE lane WHEN 'now' THEN 0 ELSE 1 END, position
+`);
+
+type TodayRow = {
+  id: string;
+  source: string;
+  external_id: string | null;
+  title: string;
+  note: string | null;
+  project: string | null;
+  tag: string | null;
+  estimate_min: number | null;
+  due: string | null;
+  lane: string;
+  big_rock: number;
+  pinned: number;
+  position: number;
+  url: string | null;
+  done_at: string | null;
+};
+
+function todayRowToWire(r: TodayRow) {
+  return {
+    id: r.id,
+    lane: r.lane,
+    title: r.title,
+    note: r.note ?? undefined,
+    source: r.source,
+    project: r.project ?? undefined,
+    tag: r.tag ?? undefined,
+    estimate: r.estimate_min ?? undefined,
+    due: r.due ?? undefined,
+    bigRock: r.big_rock === 1 ? true : undefined,
+    pinned: r.pinned === 1 ? true : undefined,
+    url: r.url ?? undefined,
+  };
+}
+
 /** Validates a `due` field. Returns `{ ok: true, value }` for accept,
  *  `{ ok: false }` for reject. `null`/undefined means "no due" → ok with null. */
 function validateDue(raw: unknown): { ok: true; value: string | null } | { ok: false } {
@@ -69,6 +116,12 @@ function validateDue(raw: unknown): { ok: true; value: string | null } | { ok: f
   if (ISO_DATE.test(trimmed)) return { ok: true, value: trimmed };
   return { ok: false };
 }
+
+/* ─── GET /api/v1/today — open tasks in lane=now + lane=today, in order. ─── */
+v1Api.get("/today", (c) => {
+  const rows = selectToday.all() as TodayRow[];
+  return c.json(rows.map(todayRowToWire));
+});
 
 /* ─── POST /api/v1/capture — drop an item in the brain dump inbox. ─── */
 v1Api.post("/capture", async (c) => {
