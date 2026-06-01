@@ -6,7 +6,7 @@ import Foundation
 /// asynchronously.
 class ServerManager {
     private var process: Process?
-    private let serverURL = URL(string: "http://127.0.0.1:7373/api/meta")!
+    private var serverURL: URL { Config.healthURL }
     private(set) var lastError: String?
 
     /// Path the user wants Lighthouse to run from. Defaults to ~/claude/adhd/backend

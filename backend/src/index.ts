@@ -110,11 +110,15 @@ app.get("/*", async (c) => {
 // URI registered in Google Cloud Console, oauth.ts's default, and the Mac
 // app's ServerManager/AppDelegate URLs.
 const PORT = Number(process.env.PORT ?? 7373);
+// HOST defaults to loopback so a fresh checkout is local-only by default —
+// the app has no auth on /api/* (CLAUDE.md). Set HOST=0.0.0.0 only when
+// fronted by a private network (e.g., Tailscale) or an auth proxy.
+const HOST = process.env.HOST ?? "127.0.0.1";
 
 serve(
-  { fetch: app.fetch, port: PORT, hostname: "127.0.0.1" },
+  { fetch: app.fetch, port: PORT, hostname: HOST },
   (info) => {
-    console.log(`[lighthouse] http://127.0.0.1:${info.port}`);
+    console.log(`[lighthouse] http://${HOST}:${info.port}`);
     console.log(`[lighthouse] frontend: ${FRONTEND_ROOT}`);
     console.log(`[lighthouse] agent: ${isAgentConfigured() ? "ready" : "no key (fallback math)"}`);
 

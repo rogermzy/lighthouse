@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lighthouse server launchd unit. Installed by scripts/install-on-server.sh
+  into ~/Library/LaunchAgents/ with __USER__, __REPO__, and __NODE__ rewritten.
+
+  Runs the backend at login, restarts on crash, listens on 0.0.0.0:7373 for
+  Tailscale clients, logs to ~/Library/Logs/Lighthouse.{out,err}.log.
+
+  Manage:
+    launchctl bootstrap   gui/$UID ~/Library/LaunchAgents/com.rogermzy.lighthouse.plist
+    launchctl bootout     gui/$UID/com.rogermzy.lighthouse
+    launchctl kickstart -k gui/$UID/com.rogermzy.lighthouse   # force restart
+    launchctl print       gui/$UID/com.rogermzy.lighthouse    # current status
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rogermzy.lighthouse</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__NODE__</string>
+        <string>__REPO__/backend/node_modules/.bin/tsx</string>
+        <string>src/index.ts</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__/backend</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOST</key>
+        <string>0.0.0.0</string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/Lighthouse.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/Lighthouse.err.log</string>
+</dict>
+</plist>

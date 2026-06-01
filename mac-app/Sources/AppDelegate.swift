@@ -110,17 +110,72 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Server lifecycle
 
     private func startServer() {
+        // Remote mode: a separate machine (e.g., Mac mini on Tailscale) runs
+        // the backend under launchd. We don't own the process — just confirm
+        // it's reachable and load it. No ServerManager, no child node.
+        if Config.isRemote {
+            self.serverManager = nil
+            verifyRemoteAndLoad()
+            return
+        }
+
         let manager = ServerManager()
         self.serverManager = manager
         manager.start { [weak self] success in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if success {
-                    self.webView?.load(URLRequest(url: URL(string: "http://127.0.0.1:7373")!))
+                    self.webView?.load(URLRequest(url: Config.baseURL))
                 } else {
                     self.showServerError(detail: manager.lastError ?? "Unknown error.")
                 }
             }
+        }
+    }
+
+    /// Remote mode: ping /api/meta with a short timeout; on success load the
+    /// UI, on failure surface a remote-specific error (Tailscale off, mini
+    /// asleep, wrong URL) instead of the local-Node hints.
+    private func verifyRemoteAndLoad() {
+        var req = URLRequest(url: Config.healthURL)
+        req.timeoutInterval = 4.0
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                let ok = (response as? HTTPURLResponse)?.statusCode == 200
+                if ok {
+                    self.webView?.load(URLRequest(url: Config.baseURL))
+                } else {
+                    let detail = error?.localizedDescription
+                        ?? "Server at \(Config.baseURL.absoluteString) didn't respond."
+                    self.showRemoteError(detail: detail)
+                }
+            }
+        }.resume()
+    }
+
+    private func showRemoteError(detail: String) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't reach Lighthouse"
+        alert.informativeText = """
+        \(detail)
+
+        Pointing at: \(Config.baseURL.absoluteString)
+
+        Check:
+          • Tailscale is connected (System Settings → Network)
+          • The server machine is awake and the backend is running
+          • The URL is right:
+              defaults read com.rogermzy.lighthouse LighthouseRemoteURL
+          • To switch back to local mode:
+              defaults delete com.rogermzy.lighthouse LighthouseRemoteURL
+        """
+        alert.addButton(withTitle: "Retry")
+        alert.addButton(withTitle: "Quit")
+        if alert.runModal() == .alertFirstButtonReturn {
+            startServer()
+        } else {
+            NSApp.terminate(nil)
         }
     }
 
@@ -283,10 +338,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // rebuild it so the menu/Dock click doesn't silently no-op.
         if window == nil {
             setupWindow()
-            if let manager = serverManager, let url = URL(string: "http://127.0.0.1:7373") {
-                _ = manager  // keep ref alive
-                webView?.load(URLRequest(url: url))
-            }
+            // Server is already up at this point (was running before the
+            // window was closed); just point the new webview at it.
+            webView?.load(URLRequest(url: Config.baseURL))
         }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -303,7 +357,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openInBrowser() {
-        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:7373")!)
+        NSWorkspace.shared.open(Config.baseURL)
     }
 
     @objc private func viewLogs() {
