@@ -548,8 +548,11 @@ function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, 
   // "allow repeats" pass.
   const recommendations = useMemo(() => {
     const todayIds = new Set(tasks.map(t => t.id));
+    // Pinned bypasses the weight floor — an explicit 📌 (or a "→ Today"
+    // overflow that auto-pins) is a stronger signal than enrichment weight,
+    // and a freshly-triaged brain-dump item has no weight yet anyway.
     const eligible = (weekTasks || []).filter(
-      t => (t.weight ?? 0) >= REC_MIN_WEIGHT && !todayIds.has(t.id)
+      t => (t.pinned || (t.weight ?? 0) >= REC_MIN_WEIGHT) && !todayIds.has(t.id)
     );
     return rankRecommendations(eligible, Number.MAX_SAFE_INTEGER);
   }, [weekTasks, tasks]);
