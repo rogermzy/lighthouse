@@ -1684,7 +1684,6 @@ function App() {
   };
 
   // Pin/unpin a task. Same error-toast + refresh pattern as patchLane.
-  // The server enforces the 5-pin cap and returns 409 pin_cap_full if exceeded.
   const togglePin = useCallback(async (id, pinned) => {
     try {
       const r = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
@@ -1757,33 +1756,26 @@ function App() {
   }, [refreshTasks]);
 
   const triageInbox = async (id, where) => {
-    const triageFetch = (target) =>
-      fetch(`/api/inbox/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ triaged_to: target }),
-      });
-
     setTasks(prev => prev.filter(t => t.id !== id));
     try {
-      let res = await triageFetch(where);
-      // If user wanted "today" but the cap is full, soft-fall-back to
-      // "later" (which lands in this_week) — no auto-pin. Pin is reserved
-      // for explicit 📌 clicks; auto-pinning here would conflate the
-      // brain-dump "send this toward action" gesture with the deliberate
-      // "this is next in line" signal. The new task lands in this_week
-      // and will surface in Up next if its weight earns it.
-      if (res.status === 409 && where === "today") {
-        const r2 = await triageFetch("later");
-        if (r2.ok) {
-          setToast({ kind: "warn", text: "Today is full — moved to This week." });
+      const res = await fetch(`/api/inbox/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triaged_to: where }),
+      });
+      if (res.ok) {
+        // Backend falls back to this_week + pinned=1 when triage="today" and
+        // Today is at cap — the task is parked at the top of Up next instead
+        // of failing. Surface that to the user so the "→ Today" click doesn't
+        // look like it silently went somewhere else.
+        const body = await res.json().catch(() => ({}));
+        if (body.fellBackToUpNext) {
+          setToast({ kind: "warn", text: "Today is full — pinned to Up next." });
         }
       }
     } catch (err) {
       console.warn("triageInbox failed:", err);
     } finally {
-      // Pull fresh state — on 409 this restores the inbox row that the optimistic
-      // update removed; on success this picks up the newly-created task.
       refreshTasks();
     }
   };

@@ -54,11 +54,6 @@ const selectVisible = db.prepare(`
   ORDER BY t.lane, t.position
 `);
 
-const PIN_CAP = 5;
-const countPinned = db.prepare(
-  "SELECT COUNT(*) AS n FROM tasks WHERE pinned = 1 AND done_at IS NULL"
-);
-
 // Append helpers for re-positioning. `maxPosInLane` is used when a task moves
 // into a new lane without an explicit index — it just lands at the end.
 const maxPosInLane = db.prepare(
@@ -191,7 +186,6 @@ tasksApi.patch("/:id", async (c) => {
 
   let notFound = false;
   let capFull: number | null = null;
-  let pinCapFull: number | null = null;
   let nowGateError: string | null = null;
   let shouldLogCompletion = false;
   // Captures the done-state transition (true=just-done, false=just-reopened,
@@ -255,19 +249,6 @@ tasksApi.patch("/:id", async (c) => {
       params.big_rock = body.bigRock ? 1 : 0;
     }
     if (typeof body.pinned === "boolean") {
-      // 5-pin cap: a sixth pin is rejected so "pinned" keeps signal value.
-      // Existing rows getting unpinned are always allowed.
-      if (body.pinned === true) {
-        const { n } = countPinned.get() as { n: number };
-        // Permit re-pinning a task that's already pinned (no-op net change).
-        const wasPinned = (db.prepare("SELECT pinned FROM tasks WHERE id = :id").get({ id }) as { pinned: number } | undefined)?.pinned === 1;
-        if (!wasPinned && n >= PIN_CAP) {
-          // Bubble up via a closure flag — we're inside runTx and need to
-          // exit cleanly before responding. Mirroring the capFull pattern.
-          pinCapFull = n;
-          return;
-        }
-      }
       setters.push(FIELD_SQL.pinned);
       params.pinned = body.pinned ? 1 : 0;
     }
@@ -363,12 +344,6 @@ tasksApi.patch("/:id", async (c) => {
   if (capFull !== null) {
     return c.json(
       { error: "today_full", message: `Today already has ${TODAY_CAP} tasks. Move one to This week first.`, todayCount: capFull },
-      409
-    );
-  }
-  if (pinCapFull !== null) {
-    return c.json(
-      { error: "pin_cap_full", message: `${PIN_CAP} pinned already — unpin one first.`, pinCount: pinCapFull },
       409
     );
   }

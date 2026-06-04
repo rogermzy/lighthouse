@@ -29,9 +29,9 @@ const selectInboxById = db.prepare(`
 
 const insertTaskFromInbox = db.prepare(`
   INSERT INTO tasks
-    (id, source, external_id, title, note, project, tag, estimate_min, due, lane, big_rock, position, done_at, created_at, updated_at)
+    (id, source, external_id, title, note, project, tag, estimate_min, due, lane, big_rock, pinned, position, done_at, created_at, updated_at)
   VALUES
-    (:id, :source, NULL, :title, NULL, NULL, NULL, NULL, NULL, :lane, 0,
+    (:id, :source, NULL, :title, NULL, NULL, NULL, NULL, NULL, :lane, 0, :pinned,
      (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE lane = :lane),
      NULL, :now, :now)
 `);
@@ -98,20 +98,29 @@ inboxApi.patch("/:id", async (c) => {
   if (!item) return c.json({ error: "not found" }, 404);
 
   let createdTaskId: string | null = null;
-  let capFull: number | null = null;
+  let fellBackToUpNext = false;
 
   // Cap-check + triage + task-insert all in one IMMEDIATE-mode transaction so
   // concurrent triage→today writes can't both see count=2 and both insert.
   runTx(() => {
+    let lane = TRIAGE_TO_LANE[triagedTo]; // undefined for "drop"
+    let pinned = 0;
+
     if (triagedTo === "today") {
       const { n } = countTodayUndone.get() as { n: number };
       if (n >= TODAY_CAP) {
-        capFull = n;
-        return; // exit without touching inbox row; empty COMMIT is fine
+        // Today is full → park at the top of Up next instead of failing the
+        // triage. Up next is derived from this_week (pinned + high-weight),
+        // so this_week + pinned=1 surfaces it as the next-in-line. Keeps the
+        // brain-dump triage gesture cheap: user said "today", system honors
+        // the intent by queueing it for the moment a Today slot opens.
+        lane = "this_week";
+        pinned = 1;
+        fellBackToUpNext = true;
       }
     }
+
     updateTriage.run({ id, triaged_to: triagedTo });
-    const lane = TRIAGE_TO_LANE[triagedTo];
     if (lane) {
       const taskId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       insertTaskFromInbox.run({
@@ -119,18 +128,12 @@ inboxApi.patch("/:id", async (c) => {
         source: item.source,
         title: item.title,
         lane,
+        pinned,
         now: nowIso(),
       });
       createdTaskId = taskId;
     }
   });
 
-  if (capFull !== null) {
-    return c.json(
-      { error: "today_full", message: `Today already has ${TODAY_CAP} tasks. Move one to This week first.`, todayCount: capFull },
-      409
-    );
-  }
-
-  return c.json({ ok: true, createdTaskId });
+  return c.json({ ok: true, createdTaskId, fellBackToUpNext });
 });
