@@ -2091,6 +2091,22 @@ input, textarea {
 }
 .suggest-btn:hover .suggest-btn-icon { color: #fbf8f1; }
 
+/* Plan-my-day reuses the suggest-btn shape but flips to outlined so the two
+   top-bar buttons read as a pair without competing. The "primary action" is
+   still the user's choice — both are valid entry points. */
+.suggest-btn.plan-day-btn {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+.suggest-btn.plan-day-btn::before { display: none; }
+.suggest-btn.plan-day-btn:hover {
+  background: var(--paper-2);
+  border-color: var(--ink-2);
+}
+.suggest-btn.plan-day-btn .suggest-btn-icon { color: var(--accent-3, var(--accent)); }
+.suggest-btn.plan-day-btn:hover .suggest-btn-icon { color: var(--ink); }
+
 /* ───────── goals page ───────── */
 .goal-annual-grid {
   display: grid;

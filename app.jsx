@@ -1376,7 +1376,7 @@ function CalendarCard({ focusTask, onSchedule, scheduled, focusBlockStartMin, on
 }
 
 /* ─────────────────────── top bar ─────────────────────── */
-function TopBar({ onSuggest, profile }) {
+function TopBar({ onSuggest, onPlanDay, profile }) {
   const firstName = (profile?.name || "you").trim().split(/\s+/)[0];
   const meetingCount = CALENDAR.events.length;
   return (
@@ -1397,6 +1397,10 @@ function TopBar({ onSuggest, profile }) {
         </h1>
       </div>
       <div className="topbar-actions">
+        <button className="suggest-btn plan-day-btn" onClick={onPlanDay} title="Pick today's focus — uses goals, stuck tasks, and your calendar">
+          <span className="suggest-btn-icon">◎</span>
+          Plan my day
+        </button>
         <button className="suggest-btn" onClick={onSuggest}>
           <span className="suggest-btn-icon">✦</span>
           Suggest from goals
@@ -1466,6 +1470,7 @@ function App() {
       .catch(() => {});
   }, []);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [planDayOpen, setPlanDayOpen] = useState(false);
   const [profile, setProfile] = useState(() => window.PROFILE ?? { name: "You", email: "", initials: "?" });
   const [goals, setGoals] = useState(() => window.GOALS ?? { annual: [], quarterly: [], monthly: [] });
 
@@ -2148,7 +2153,10 @@ function App() {
         />
       ) : (
         <main className="main">
-          <TopBar onSuggest={() => setSuggestOpen(true)} profile={profile} />
+          <TopBar
+            onSuggest={() => setSuggestOpen(true)}
+            onPlanDay={() => setPlanDayOpen(true)}
+            profile={profile} />
           <FocusCard
             task={tasksByLane.now}
             focusMode={focusMode}
@@ -2321,6 +2329,92 @@ function App() {
             }
             await refreshTasks();
             return { ok: true };
+          } catch (err) {
+            setToast({ kind: "warn", text: String(err.message || err) });
+            return { ok: false };
+          }
+        }}
+      />
+
+      <PlanDayModal
+        open={planDayOpen}
+        onClose={() => setPlanDayOpen(false)}
+        onAcceptAll={() => setPlanDayOpen(false)}
+        onAccept={async (pick) => {
+          // Plan-my-day routing: try Today first, fall back to Up next
+          // (this_week + pinned) when Today is full. Unlike Suggest, we
+          // never interrupt with a DemoteModal — the user just asked for
+          // a batch of picks and expects them to land somewhere useful
+          // without per-row decisions. fellBackToUpNext tells the modal
+          // to show "→ Up next" instead of "→ Today" on the row.
+          const tryPatchTo = async (taskId, lane, pinned) => {
+            const body = { lane };
+            if (pinned !== undefined) body.pinned = pinned;
+            return await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+          };
+          const promote = async (taskId, title) => {
+            const r = await tryPatchTo(taskId, "today");
+            if (r.status === 409) {
+              const r2 = await tryPatchTo(taskId, "this_week", true);
+              if (!r2.ok) {
+                const b = await r2.json().catch(() => ({}));
+                setToast({ kind: "warn", text: b.message || `Couldn't add "${title}" (${r2.status}).` });
+                return { ok: false };
+              }
+              setToast({ kind: "info", text: `Today is full — "${title}" queued in Up next.` });
+              return { ok: true, lane: "this_week" };
+            }
+            if (!r.ok) {
+              const b = await r.json().catch(() => ({}));
+              setToast({ kind: "warn", text: b.message || `Couldn't add "${title}" (${r.status}).` });
+              return { ok: false };
+            }
+            return { ok: true, lane: "today" };
+          };
+
+          try {
+            if (pick.task?.id) {
+              const out = await promote(pick.task.id, pick.task.title);
+              if (out.ok) await refreshTasks();
+              return out;
+            }
+            // No existing task — create one via commit-tasks (lands in
+            // this_week with primary_goal_id), then promote through the
+            // same cascade.
+            const goalId = pick.goal?.id;
+            const title = pick.task?.title || pick.goal?.nextStep || pick.goal?.title;
+            if (!goalId || !title) {
+              setToast({ kind: "warn", text: "Pick missing goal/title — can't add." });
+              return { ok: false };
+            }
+            const r = await fetch(`/api/goals/monthly/${encodeURIComponent(goalId)}/commit-tasks`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tasks: [{
+                  title,
+                  note: pick.reason || "",
+                  estimateMin: 25,
+                  tag: "shallow",
+                  due: null,
+                  reasoning: pick.reason || "",
+                }],
+              }),
+            });
+            if (!r.ok) {
+              const body = await r.json().catch(() => ({}));
+              setToast({ kind: "warn", text: body.detail || body.error || `Couldn't add (${r.status}).` });
+              return { ok: false };
+            }
+            const created = await r.json();
+            const newId = (created.created || [])[0];
+            const out = newId ? await promote(newId, title) : { ok: true, lane: "this_week" };
+            await refreshTasks();
+            return out;
           } catch (err) {
             setToast({ kind: "warn", text: String(err.message || err) });
             return { ok: false };

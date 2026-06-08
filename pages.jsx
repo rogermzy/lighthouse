@@ -3316,4 +3316,159 @@ function ApiDocs({ apiToken }) {
   );
 }
 
-Object.assign(window, { CalendarPage, GoalsPage, SuggestionModal, SettingsPage, DemoteModal, JournalPage });
+/* ─────────────────────────────────────────────────────────────
+   Plan-my-day modal — 3-5 picks (vs Suggest's fixed 3), with
+   stuck-task surfacing. Accept-all cascades Today → Up next
+   automatically (no DemoteModal interrupt).
+   ───────────────────────────────────────────────────────────── */
+function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
+  const [picks, setPicks] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState(null);
+  // Per-row state: idx → "idle" | "adding" | "added-today" | "added-upnext" | "error"
+  const [rowState, setRowState] = React.useState({});
+  const [acceptingAll, setAcceptingAll] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setPicks(null);
+    setError(null);
+    setRowState({});
+    setAcceptingAll(false);
+    fetch("/api/agent/plan-day", { method: "POST", headers: { "Content-Type": "application/json" } })
+      .then(async (r) => {
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          throw new Error(b.detail || b.error || `status ${r.status}`);
+        }
+        return r.json();
+      })
+      .then((data) => { if (!cancelled) setPicks(data.picks || []); })
+      .catch((err) => { if (!cancelled) setError(String(err.message || err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  if (!open) return null;
+
+  const settle = (i, res) => {
+    const s = res?.ok === false
+      ? "error"
+      : res?.lane === "this_week"
+        ? "added-upnext"
+        : "added-today";
+    setRowState((r) => ({ ...r, [i]: s }));
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-halftone" />
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+
+        <div className="modal-eyebrow">
+          <span>◎</span> {loading ? "Reading the day…" : "Planned by Claude"}
+        </div>
+        <h2 className="modal-title">Today's focus.<br/><em>Goals, stuck items, what fits the calendar.</em></h2>
+        <p className="modal-sub">
+          {loading
+            ? "Checking goals, stuck tasks, today's calendar, and recent completions…"
+            : error
+              ? "Couldn't reach the planner. Showing nothing rather than a guess — try again in a moment."
+              : "Accept the ones that feel right. They land in Today; overflow queues in Up next."}
+        </p>
+
+        {error && !loading && (
+          <div className="suggest-list">
+            <div className="suggest-row" style={{ opacity: 0.7 }}>
+              <div className="suggest-body">
+                <div className="suggest-task" style={{ color: "var(--muted)" }}>{error}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="suggest-list">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="suggest-row" style={{ opacity: 0.5 }}>
+                <div className="suggest-num" style={{ background: "var(--muted-2)" }}>{i + 1}</div>
+                <div className="suggest-body">
+                  <div className="suggest-task" style={{ color: "var(--muted)" }}>…</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && picks && picks.length > 0 && (
+          <div className="suggest-list">
+            {picks.map((p, i) => {
+              const annual = p.annual;
+              const state = rowState[i] || "idle";
+              return (
+                <div key={i} className="suggest-row">
+                  <div className="suggest-num" style={{ background: annual.color }}>{i + 1}</div>
+                  <div className="suggest-body">
+                    <div className="suggest-task">{p.task?.title || p.goal.nextStep || p.goal.title}</div>
+                    <div className="suggest-chain">
+                      laddering to
+                      <span className="suggest-chain-link">{p.goal.title}</span>
+                      →
+                      <span className="suggest-chain-link" style={{ color: annual.color }}>{annual.title}</span>
+                    </div>
+                    <div className="suggest-reason">{p.reason}</div>
+                  </div>
+                  <div className="suggest-actions">
+                    <button
+                      className="suggest-accept"
+                      disabled={state === "adding" || state.startsWith("added") || acceptingAll}
+                      onClick={async () => {
+                        if (!onAccept) return;
+                        setRowState((r) => ({ ...r, [i]: "adding" }));
+                        try { settle(i, await onAccept(p)); }
+                        catch { setRowState((r) => ({ ...r, [i]: "error" })); }
+                      }}>
+                      {state === "adding"        ? "…" :
+                       state === "added-today"   ? "✓ Today" :
+                       state === "added-upnext"  ? "✓ Up next" :
+                       state === "error"         ? "Retry" :
+                                                   "+ Add"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="modal-foot">
+          <button className="modal-secondary" onClick={onClose}>Not now</button>
+          <button
+            className="modal-primary"
+            disabled={loading || acceptingAll || !picks || picks.length === 0}
+            onClick={async () => {
+              if (!onAccept || !picks) return;
+              setAcceptingAll(true);
+              // Sequential so the Today cap-check stays honest — concurrent
+              // PATCHes could each see room for one more and both squeeze in.
+              for (let i = 0; i < picks.length; i++) {
+                if (String(rowState[i] || "").startsWith("added")) continue;
+                setRowState((r) => ({ ...r, [i]: "adding" }));
+                try { settle(i, await onAccept(picks[i])); }
+                catch { setRowState((r) => ({ ...r, [i]: "error" })); }
+              }
+              setAcceptingAll(false);
+              onAcceptAll?.();
+            }}>
+            {acceptingAll ? "Adding…" : `Accept all ${picks?.length ?? ""} →`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { CalendarPage, GoalsPage, SuggestionModal, PlanDayModal, SettingsPage, DemoteModal, JournalPage });

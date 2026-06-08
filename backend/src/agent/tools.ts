@@ -33,6 +33,19 @@ const selectCompletions = db.prepare(`
   SELECT task_id, done_at, source, est_min FROM completions_log
   WHERE done_at >= :since ORDER BY done_at DESC
 `);
+// "Stuck" = still open, still in an active lane (today/this_week), but
+// has been around for ≥ N days. Uses created_at as the age proxy — sync
+// touches updated_at on every poll, so it's noisy; created_at is stable
+// and means "you've been carrying this around for a while."
+const selectStuckTasks = db.prepare(`
+  SELECT id, source, title, lane, project, tag, estimate_min, due,
+         created_at, updated_at
+  FROM tasks
+  WHERE done_at IS NULL
+    AND lane IN ('today', 'this_week')
+    AND created_at < :before
+  ORDER BY created_at ASC
+`);
 
 export const TOOL_DEFS = [
   {
@@ -87,6 +100,39 @@ export const TOOL_DEFS = [
       required: ["suggestions"],
     },
   },
+  {
+    name: "list_stuck_tasks",
+    description: "Open tasks sitting in today/this_week that have been around for `days` or more (default 7). These are candidates for momentum picks — Roger has been carrying them without finishing.",
+    input_schema: {
+      type: "object",
+      properties: { days: { type: "number", description: "Minimum age in days. Default 7." } },
+    },
+  },
+  {
+    name: "return_plan",
+    description: "Final answer for Plan-my-day: 3-5 picks for today's focus. Each may reference an existing task (task_id) or just a goal + free-form title (goal_id + title). Calling this terminates the loop.",
+    input_schema: {
+      type: "object",
+      properties: {
+        picks: {
+          type: "array",
+          minItems: 3,
+          maxItems: 5,
+          items: {
+            type: "object",
+            properties: {
+              goal_id: { type: "string", description: "The monthly goal id this pick ladders to." },
+              task_id: { type: ["string", "null"], description: "Concrete task id if one exists; null otherwise." },
+              title:   { type: ["string", "null"], description: "Free-form title when no task_id (creating a new task)." },
+              reason:  { type: "string", description: "One-sentence reason shown to the user (≤120 chars). Mention if it's a stuck-task pickup." },
+            },
+            required: ["goal_id", "reason"],
+          },
+        },
+      },
+      required: ["picks"],
+    },
+  },
 ] as const;
 
 export function executeTool(name: string, input: unknown): unknown {
@@ -117,12 +163,17 @@ export function executeTool(name: string, input: unknown): unknown {
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
       return selectCompletions.all({ since });
     }
+    case "list_stuck_tasks": {
+      const days = Math.max(1, Number(args.days) || 7);
+      const before = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      return selectStuckTasks.all({ before });
+    }
     default:
       return { error: `unknown tool: ${name}` };
   }
 }
 
-export type RawSuggestion = { goal_id: string; task_id?: string | null; reason: string };
+export type RawSuggestion = { goal_id: string; task_id?: string | null; title?: string | null; reason: string };
 
 const selectMonthlyById   = db.prepare("SELECT * FROM goals_monthly WHERE id = :id");
 const selectQuarterlyById = db.prepare("SELECT * FROM goals_quarterly WHERE id = :id");
@@ -155,6 +206,19 @@ export function enrichSuggestions(raw: RawSuggestion[]) {
       ? (selectTaskById.get({ id: s.task_id }) as TaskRow | undefined)
       : undefined;
 
+    // Plan-day picks may set `title` instead of `task_id` (no existing
+    // task yet). Surface it on the wire `task` field with a synthetic
+    // null id so the modal can render the title; the accept flow checks
+    // for `task.id` to decide PATCH-existing vs create-new.
+    const wireTask = task
+      ? {
+          id: task.id, title: task.title, source: task.source,
+          project: task.project ?? undefined, tag: task.tag ?? undefined,
+          estimate: task.estimate_min ?? undefined, due: task.due ?? undefined,
+          bigRock: task.big_rock === 1 ? true : undefined,
+        }
+      : (s.title ? { id: null, title: s.title } : null);
+
     return [{
       goal: {
         id: goal.id, title: goal.title, progress: goal.progress, parent: goal.parent,
@@ -165,12 +229,7 @@ export function enrichSuggestions(raw: RawSuggestion[]) {
         progress: quarter.progress, weeksLeft: quarter.weeks_left,
       } : null,
       annual,
-      task: task ? {
-        id: task.id, title: task.title, source: task.source,
-        project: task.project ?? undefined, tag: task.tag ?? undefined,
-        estimate: task.estimate_min ?? undefined, due: task.due ?? undefined,
-        bigRock: task.big_rock === 1 ? true : undefined,
-      } : null,
+      task: wireTask,
       reason: s.reason,
     }];
   });
