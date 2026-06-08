@@ -1852,7 +1852,12 @@ function App() {
       console.warn("scheduleFocusBlock failed:", err);
       setToast({ kind: "warn", text: "Couldn't schedule — network error." });
     }
-  }, [tasksByLane.now]);
+    // Optional-chain the dep: tasksByLane is declared via useMemo further
+    // down this function, and Babel-in-browser hoists `const` to `var` so it
+    // reads as undefined here on first pass. Same TDZ pitfall flagged in
+    // CLAUDE.md. `?.` keeps the dep evaluation safe; React still re-binds
+    // the callback when the actual now-task identity changes.
+  }, [tasksByLane?.now]);
 
   // "Mark done" on a brain-dump item. An inbox row has no done state of its
   // own — it isn't in the tasks table — so we promote it to a real task (via
