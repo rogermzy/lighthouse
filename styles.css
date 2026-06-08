@@ -4169,6 +4169,13 @@ textarea.editable-input { line-height: 1.5; }
 }
 .top-toast-warn { background: var(--accent); }
 .top-toast-ok   { background: var(--accent-3); }
+.top-toast-link {
+  margin-left: 12px;
+  color: #fbf8f1;
+  text-decoration: underline;
+  font-weight: 600;
+}
+.top-toast-link:hover { opacity: 0.85; }
 
 /* ───────── settings page ───────── */
 .settings-section {

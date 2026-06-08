@@ -1293,7 +1293,14 @@ function JournalDateRail({ days, selectedDate, onSelectDate, startOfTodayMs }) {
   );
 }
 
-function CalendarCard({ focusTask, onSchedule, scheduled, onOpen }) {
+function CalendarCard({ focusTask, onSchedule, scheduled, focusBlockStartMin, onOpen }) {
+  // When a focus block is scheduled, the label reflects the EXISTING event's
+  // start time, not the current BEST_BLOCK — otherwise dragging the event
+  // around in GCal (or BEST_BLOCK shifting since) would make the label lie.
+  // Falls back to BEST_BLOCK.start for the not-yet-scheduled case.
+  const labelStartMin = scheduled && focusBlockStartMin != null
+    ? focusBlockStartMin
+    : BEST_BLOCK.start;
   const day = CALENDAR.dayEnd - CALENDAR.dayStart;
   const pct = (m) => ((m - CALENDAR.dayStart) / day) * 100;
   const dur = (b) => ((b.end - b.start) / day) * 100;
@@ -1361,8 +1368,8 @@ function CalendarCard({ focusTask, onSchedule, scheduled, onOpen }) {
         className={`cal-cta ${scheduled ? "scheduled" : ""}`}
         onClick={onSchedule}>
         {scheduled
-          ? `Scheduled for ${fmtTime(BEST_BLOCK.start)}`
-          : `Block ${fmtTime(BEST_BLOCK.start)} for focus`}
+          ? `Scheduled for ${fmtTime(labelStartMin)}`
+          : `Block ${fmtTime(labelStartMin)} for focus`}
       </button>
     </div>
   );
@@ -1441,7 +1448,23 @@ function App() {
   );
   const openDetail = useCallback((id) => setDetailTaskId(id), []);
   const inbox = useMemo(() => tasks.filter(t => t.lane === "inbox"), [tasks]);
-  const [scheduled, setScheduled] = useState(false);
+  // Today's focus block, hydrated from /api/calendar/focus-block on mount so
+  // the "Block X for focus" button reflects an event that's already on the
+  // user's Google Calendar (survives reload). Shape: { eventId, taskId,
+  // startMin, endMin, date } | null. Stale if date !== today — defensive
+  // check on read since the row sticks around for free.
+  const [focusBlock, setFocusBlock] = useState(null);
+  useEffect(() => {
+    fetch("/api/calendar/focus-block")
+      .then(r => r.ok ? r.json() : null)
+      .then(b => {
+        if (!b) return setFocusBlock(null);
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+        setFocusBlock(b.date === todayStr ? b : null);
+      })
+      .catch(() => {});
+  }, []);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [profile, setProfile] = useState(() => window.PROFILE ?? { name: "You", email: "", initials: "?" });
   const [goals, setGoals] = useState(() => window.GOALS ?? { annual: [], quarterly: [], monthly: [] });
@@ -1783,6 +1806,49 @@ function App() {
     }
   };
 
+  // "Block X for focus" CTA. Creates (or reschedules) a Google Calendar event
+  // on the user's primary calendar for the current best free block, anchored
+  // to the Now task. The server PATCHes the same event on re-click so a
+  // shifted BEST_BLOCK (meeting added/cancelled) just moves the existing
+  // slot — no duplicate events. 409 needs_reconsent surfaces a toast link
+  // back to /auth/google so the user can re-grant the calendar.events scope.
+  const scheduleFocusBlock = useCallback(async () => {
+    const taskId = tasksByLane.now?.id;
+    if (!taskId) return;
+    try {
+      const r = await fetch("/api/calendar/focus-block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId }),
+      });
+      if (r.status === 409) {
+        const body = await r.json().catch(() => ({}));
+        if (body.error === "needs_reconsent" || body.error === "google_not_connected") {
+          setToast({
+            kind: "warn",
+            text: "Google needs to re-grant calendar write access.",
+            href: body.auth_url || "/auth/google",
+            linkText: "Re-consent →",
+          });
+          return;
+        }
+        if (body.error === "no_free_block") {
+          setToast({ kind: "warn", text: "No free block left today." });
+          return;
+        }
+      }
+      if (!r.ok) {
+        setToast({ kind: "warn", text: `Couldn't schedule (${r.status}).` });
+        return;
+      }
+      setFocusBlock(await r.json());
+      setToast({ kind: "ok", text: "Focus block on your calendar." });
+    } catch (err) {
+      console.warn("scheduleFocusBlock failed:", err);
+      setToast({ kind: "warn", text: "Couldn't schedule — network error." });
+    }
+  }, [tasksByLane.now]);
+
   // "Mark done" on a brain-dump item. An inbox row has no done state of its
   // own — it isn't in the tasks table — so we promote it to a real task (via
   // the normal triage path, which lands it in This week) and immediately mark
@@ -1975,8 +2041,9 @@ function App() {
       {activeView === "calendar" ? (
         <CalendarPage
           focusTask={tasksByLane.now}
-          onSchedule={() => setScheduled(s => !s)}
-          scheduled={scheduled}
+          onSchedule={scheduleFocusBlock}
+          scheduled={Boolean(focusBlock)}
+          focusBlockStartMin={focusBlock?.startMin}
         />
       ) : activeView === "tasks" ? (
         <TasksPage
@@ -2145,8 +2212,9 @@ function App() {
             <DoneTodayCard count={doneToday} />
             <CalendarCard
               focusTask={tasksByLane.now}
-              onSchedule={() => setScheduled(s => !s)}
-              scheduled={scheduled}
+              onSchedule={scheduleFocusBlock}
+              scheduled={Boolean(focusBlock)}
+              focusBlockStartMin={focusBlock?.startMin}
               onOpen={() => setActiveView("calendar")}
             />
             <WeekGlance />
@@ -2263,6 +2331,11 @@ function App() {
       {toast && (
         <div className={`top-toast top-toast-${toast.kind}`} role="status">
           {toast.text}
+          {toast.href && (
+            <a className="top-toast-link" href={toast.href}>
+              {toast.linkText || "Open →"}
+            </a>
+          )}
         </div>
       )}
 

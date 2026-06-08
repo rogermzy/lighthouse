@@ -1,5 +1,7 @@
 import { Hono } from "hono";
-import { db } from "../db/client.js";
+import { google } from "googleapis";
+import { db, nowIso } from "../db/client.js";
+import { googleOAuthClient, hasGoogleTokens, isGoogleOAuthConfigured } from "../auth/oauth.js";
 
 type EventRow = {
   id: string;
@@ -142,4 +144,181 @@ calendarApi.get("/today", (c) => {
     freeTotal,
     bestBlock,
   });
+});
+
+/* ────────────────────────── focus-block ──────────────────────────
+ * "Block X for focus" CTA: creates a real Google Calendar event on the
+ * primary calendar covering BEST_BLOCK.start for up to 50 minutes (capped
+ * at the block's actual end). Re-clicks PATCH the same event so a moved
+ * BEST_BLOCK (meeting added/cancelled since) updates the existing slot
+ * instead of stacking events. The event ID is stored in scheduled_focus
+ * keyed by date — one focus block per day. */
+
+const FOCUS_BLOCK_MAX_MIN = 50;
+const FOCUS_EVENT_PREFIX = "🎯 Focus:";
+
+type ScheduledFocusRow = {
+  date: string;
+  event_id: string;
+  task_id: string | null;
+  start_min: number;
+  end_min: number;
+};
+
+const selectScheduledFocus = db.prepare(`
+  SELECT date, event_id, task_id, start_min, end_min
+  FROM scheduled_focus WHERE date = :date
+`);
+
+const upsertScheduledFocus = db.prepare(`
+  INSERT INTO scheduled_focus (date, event_id, task_id, start_min, end_min, created_at, updated_at)
+  VALUES (:date, :event_id, :task_id, :start_min, :end_min, :now, :now)
+  ON CONFLICT(date) DO UPDATE SET
+    event_id = excluded.event_id,
+    task_id = excluded.task_id,
+    start_min = excluded.start_min,
+    end_min = excluded.end_min,
+    updated_at = excluded.updated_at
+`);
+
+const selectTaskTitle = db.prepare(`
+  SELECT title FROM tasks WHERE id = :id
+`);
+
+const selectCalendarMeta = db.prepare(`
+  SELECT day_start_min, day_end_min FROM calendar_meta WHERE id = 1
+`);
+
+// Compute today's best free block on-demand — same logic the /today endpoint
+// uses, factored out so POST can decide event timing without round-tripping
+// through the wire format.
+function todayBestBlock(): Block | null {
+  const date = todayDateStr();
+  const meta = (selectCalendarMeta.get() as { day_start_min: number; day_end_min: number } | undefined) ?? {
+    day_start_min: 8 * 60 + 30,
+    day_end_min: 18 * 60 + 30,
+  };
+  const events = selectEvents.all({ start: date, end: addDays(date, 1) }) as EventRow[];
+  const todayEvents = events
+    .filter((e) => e.start_min < meta.day_end_min)
+    .map((e) => ({ ...e, end_min: Math.min(e.end_min, meta.day_end_min) }));
+  const nowDate = new Date();
+  const nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const effectiveStart = Math.min(meta.day_end_min, Math.max(meta.day_start_min, nowMin));
+  const freeBlocks = computeFreeBlocks(todayEvents, effectiveStart, meta.day_end_min);
+  if (freeBlocks.length === 0) return null;
+  return freeBlocks.reduce((a, b) => (b.end - b.start) > (a.end - a.start) ? b : a);
+}
+
+// Build an RFC3339-ish dateTime + timeZone payload for Google's events API.
+// We pass a UTC ISO string with the local timeZone alongside; Google resolves
+// the instant from the dateTime and uses timeZone for display/recurrence.
+function googleEventTime(date: string, minOfDay: number) {
+  const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const dt = new Date(`${date}T00:00:00`);
+  dt.setMinutes(dt.getMinutes() + minOfDay);
+  return { dateTime: dt.toISOString(), timeZone: localTz };
+}
+
+// Detect Google's "insufficient scope" 403 across the few shapes the SDK
+// surfaces it in. Used to map to a 409 needs_reconsent the UI can act on.
+function isInsufficientScopeError(err: unknown): boolean {
+  const e = err as { code?: number; status?: number; message?: string };
+  if (e?.code === 403 || e?.status === 403) {
+    const msg = String(e?.message ?? "").toLowerCase();
+    return msg.includes("insufficient") || msg.includes("scope");
+  }
+  return false;
+}
+
+function rowToWire(r: ScheduledFocusRow) {
+  return {
+    eventId: r.event_id,
+    taskId: r.task_id,
+    startMin: r.start_min,
+    endMin: r.end_min,
+    date: r.date,
+  };
+}
+
+calendarApi.get("/focus-block", (c) => {
+  const date = todayDateStr();
+  const row = selectScheduledFocus.get({ date }) as ScheduledFocusRow | undefined;
+  if (!row) return c.json(null);
+  return c.json(rowToWire(row));
+});
+
+calendarApi.post("/focus-block", async (c) => {
+  if (!isGoogleOAuthConfigured() || !hasGoogleTokens()) {
+    return c.json({ error: "google_not_connected", auth_url: "/auth/google" }, 409);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const taskId = typeof body.taskId === "string" ? body.taskId : null;
+  if (!taskId) return c.json({ error: "taskId required" }, 400);
+
+  const taskRow = selectTaskTitle.get({ id: taskId }) as { title: string } | undefined;
+  if (!taskRow) return c.json({ error: "task not found" }, 404);
+
+  const best = todayBestBlock();
+  if (!best || best.end <= best.start) {
+    return c.json({ error: "no_free_block" }, 409);
+  }
+  const startMin = best.start;
+  const endMin = Math.min(best.start + FOCUS_BLOCK_MAX_MIN, best.end);
+  const date = todayDateStr();
+  const summary = `${FOCUS_EVENT_PREFIX} ${taskRow.title}`;
+  const eventBody = {
+    summary,
+    start: googleEventTime(date, startMin),
+    end: googleEventTime(date, endMin),
+  };
+
+  const oauth = googleOAuthClient();
+  const cal = google.calendar({ version: "v3", auth: oauth });
+  const existing = selectScheduledFocus.get({ date }) as ScheduledFocusRow | undefined;
+
+  let eventId: string;
+  try {
+    if (existing) {
+      // PATCH the stored event. If it 404s (user deleted it in GCal), fall
+      // through to insert — stale state shouldn't block a fresh schedule.
+      try {
+        const res = await cal.events.patch({
+          calendarId: "primary",
+          eventId: existing.event_id,
+          requestBody: eventBody,
+        });
+        eventId = res.data.id ?? existing.event_id;
+      } catch (err) {
+        const e = err as { code?: number; status?: number };
+        if (e?.code === 404 || e?.status === 404) {
+          const res = await cal.events.insert({ calendarId: "primary", requestBody: eventBody });
+          eventId = res.data.id ?? "";
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      const res = await cal.events.insert({ calendarId: "primary", requestBody: eventBody });
+      eventId = res.data.id ?? "";
+    }
+  } catch (err) {
+    if (isInsufficientScopeError(err)) {
+      return c.json({ error: "needs_reconsent", auth_url: "/auth/google" }, 409);
+    }
+    console.warn("[focus-block] event create/patch failed:", err);
+    return c.json({ error: "gcal_failed", message: String((err as Error)?.message ?? err) }, 502);
+  }
+
+  if (!eventId) {
+    return c.json({ error: "gcal_no_event_id" }, 502);
+  }
+
+  upsertScheduledFocus.run({
+    date, event_id: eventId, task_id: taskId,
+    start_min: startMin, end_min: endMin, now: nowIso(),
+  });
+
+  return c.json({ eventId, taskId, startMin, endMin, date, title: summary });
 });

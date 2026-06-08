@@ -107,6 +107,22 @@ CREATE TABLE IF NOT EXISTS completions_log (
   est_min   INTEGER
 );
 
+-- One row per day for the "Block X for focus" button — anchors the
+-- Google Calendar event ID so re-clicks can PATCH the same event
+-- instead of creating duplicates. Date-keyed so yesterday's row sticks
+-- around for free (no cleanup job needed); next-day click writes a new
+-- row instead of mutating the old one. task_id is informational — a
+-- snapshot of the Now task at schedule time, doesn't drive logic.
+CREATE TABLE IF NOT EXISTS scheduled_focus (
+  date         TEXT PRIMARY KEY,
+  event_id     TEXT NOT NULL,
+  task_id      TEXT,
+  start_min    INTEGER NOT NULL,
+  end_min      INTEGER NOT NULL,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sync_state (
   source          TEXT PRIMARY KEY,
   last_pulled_at  TEXT,

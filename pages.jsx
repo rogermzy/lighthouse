@@ -49,7 +49,10 @@ function dayHeader(dateStr, todayStr) {
   return { dow, num, isToday };
 }
 
-function CalendarPage({ focusTask, onSchedule, scheduled }) {
+function CalendarPage({ focusTask, onSchedule, scheduled, focusBlockStartMin }) {
+  const labelStartMin = scheduled && focusBlockStartMin != null
+    ? focusBlockStartMin
+    : BEST_BLOCK.start;
   const gridStartMin = CAL_HOUR_START * 60;
   const gridEndMin   = CAL_HOUR_END * 60;
   // With the quiet band compressed, gridHeight comes from the piecewise map
@@ -154,9 +157,9 @@ function CalendarPage({ focusTask, onSchedule, scheduled }) {
             <button
               className={`suggest-btn ${scheduled ? "" : ""}`}
               onClick={onSchedule}
-              title={`Block ${fmtTime(BEST_BLOCK.start)} for "${focusTask.title}"`}>
+              title={`Block ${fmtTime(labelStartMin)} for "${focusTask.title}"`}>
               <span className="suggest-btn-icon">✦</span>
-              {scheduled ? "✓ Focus block scheduled" : `Schedule focus at ${fmtTime(BEST_BLOCK.start)}`}
+              {scheduled ? "✓ Focus block scheduled" : `Schedule focus at ${fmtTime(labelStartMin)}`}
             </button>
           )}
         </div>

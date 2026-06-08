@@ -3,16 +3,19 @@ import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
 import { readTokens, writeTokens, hasTokens, deleteTokens } from "./tokens.js";
 
-/** Read scopes for Calendar, Gmail (labelled triage), and Tasks.
- *  Adding a scope here means existing tokens become "insufficient" — the user
- *  must re-visit /auth/google to re-grant. Sync runs that hit the new API
- *  before re-consent will surface a 403 in sync_state.last_error. */
+/** Scopes for Calendar (read + focus-block write), Gmail (labelled triage),
+ *  and Tasks (read + done write-back). Adding a scope here means existing
+ *  tokens become "insufficient" — the user must re-visit /auth/google to
+ *  re-grant. Sync runs that hit the new API before re-consent will surface
+ *  a 403 in sync_state.last_error, and POST /api/calendar/focus-block
+ *  returns 409 needs_reconsent so the UI can link back to /auth/google. */
 const SCOPES = [
-  "https://www.googleapis.com/auth/calendar.events.readonly",
+  // Full (not readonly) so the user can schedule a focus block — POST
+  // /api/calendar/focus-block creates a real event on the primary calendar.
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/gmail.readonly",
   // Full (not readonly) so write-back can PATCH task status when the user
-  // marks something done in Lighthouse. Existing tokens granted only the
-  // readonly scope will 403 — re-visit /auth/google to re-consent.
+  // marks something done in Lighthouse.
   "https://www.googleapis.com/auth/tasks",
 ];
 
