@@ -20,7 +20,7 @@ const selectGoalsAnnual    = db.prepare("SELECT * FROM goals_annual");
 const selectGoalsQuarterly = db.prepare("SELECT * FROM goals_quarterly");
 const selectGoalsMonthly   = db.prepare("SELECT * FROM goals_monthly");
 const selectPendingTasks   = db.prepare(`
-  SELECT id, source, title, note, project, tag, estimate_min, due, lane, big_rock
+  SELECT id, source, title, note, project, tag, estimate_min, due, lane, big_rock, pinned
   FROM tasks WHERE done_at IS NULL
 `);
 const selectEvents = db.prepare(`
@@ -38,7 +38,7 @@ const selectCompletions = db.prepare(`
 // touches updated_at on every poll, so it's noisy; created_at is stable
 // and means "you've been carrying this around for a while."
 const selectStuckTasks = db.prepare(`
-  SELECT id, source, title, lane, project, tag, estimate_min, due,
+  SELECT id, source, title, lane, project, tag, estimate_min, due, pinned,
          created_at, updated_at
   FROM tasks
   WHERE done_at IS NULL
