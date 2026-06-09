@@ -28,7 +28,10 @@ export async function runPlanDayAgent() {
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 4096,
+      // 16k headroom: adaptive thinking + 3-5 picks + multi-tool roundtrips
+      // need more budget than Suggest's fixed-3 flow. 4k was triggering
+      // max_tokens stops before the model called return_plan.
+      max_tokens: 16384,
       thinking: { type: "adaptive" },
       output_config: { effort: "high" },
       system: PLAN_DAY_SYSTEM_PROMPT,
