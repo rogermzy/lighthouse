@@ -1811,6 +1811,29 @@ function App() {
     }
   };
 
+  // Lane taxonomy is the explicit time-horizon ladder:
+  //   now → today → this_week → this_month → backlog
+  // `now` is singleton (current focus block), `today` is hard-capped at 3,
+  // `this_week` is the planning set for the next 7 days, `this_month` is the
+  // 1–4 week pool, `backlog` is the uncommitted holding pen. A background
+  // decay job demotes stale items down the ladder so nothing rots in place.
+  //
+  // Declared ABOVE every callback that reads it — Babel-in-browser turns
+  // `const` into `var`, so a dep array evaluated before this line would see
+  // `undefined` on every render and freeze the callback's closure forever
+  // (deps [undefined] never change). See CLAUDE.md: declare state in the
+  // order it's read.
+  const tasksByLane = useMemo(() => {
+    const f = (lane) => tasks.filter(x => x.lane === lane);
+    return {
+      now:        f("now")[0],
+      today:      f("today"),
+      this_week:  f("this_week"),
+      this_month: f("this_month"),
+      backlog:    f("backlog"),
+    };
+  }, [tasks]);
+
   // "Block X for focus" CTA. Creates (or reschedules) a Google Calendar event
   // on the user's primary calendar for the current best free block, anchored
   // to the Now task. The server PATCHes the same event on re-click so a
@@ -1852,12 +1875,7 @@ function App() {
       console.warn("scheduleFocusBlock failed:", err);
       setToast({ kind: "warn", text: "Couldn't schedule — network error." });
     }
-    // Optional-chain the dep: tasksByLane is declared via useMemo further
-    // down this function, and Babel-in-browser hoists `const` to `var` so it
-    // reads as undefined here on first pass. Same TDZ pitfall flagged in
-    // CLAUDE.md. `?.` keeps the dep evaluation safe; React still re-binds
-    // the callback when the actual now-task identity changes.
-  }, [tasksByLane?.now]);
+  }, [tasksByLane.now]);
 
   // "Mark done" on a brain-dump item. An inbox row has no done state of its
   // own — it isn't in the tasks table — so we promote it to a real task (via
@@ -1950,23 +1968,6 @@ function App() {
       refreshTasks();
     }
   };
-
-  // Lane taxonomy is the explicit time-horizon ladder:
-  //   now → today → this_week → this_month → backlog
-  // `now` is singleton (current focus block), `today` is hard-capped at 3,
-  // `this_week` is the planning set for the next 7 days, `this_month` is the
-  // 1–4 week pool, `backlog` is the uncommitted holding pen. A background
-  // decay job demotes stale items down the ladder so nothing rots in place.
-  const tasksByLane = useMemo(() => {
-    const f = (lane) => tasks.filter(x => x.lane === lane);
-    return {
-      now:        f("now")[0],
-      today:      f("today"),
-      this_week:  f("this_week"),
-      this_month: f("this_month"),
-      backlog:    f("backlog"),
-    };
-  }, [tasks]);
 
   const counts = {
     now:        tasksByLane.now && !doneSet.has(tasksByLane.now.id) ? 1 : 0,
