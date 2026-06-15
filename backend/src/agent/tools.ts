@@ -59,7 +59,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "list_pending_tasks",
-    description: "All not-yet-done tasks across every lane (now/today/week/later). Returns id, title, lane, source, project, tag, estimate_min, due, big_rock.",
+    description: "All not-yet-done tasks across every lane (now/today/this_week/this_month/backlog). Returns id, title, lane, source, project, tag, estimate_min, due, big_rock, pinned. `lane` and `pinned` (0/1) together identify already-in-focus tasks (now, today, or pinned this_week).",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -174,6 +174,23 @@ export function executeTool(name: string, input: unknown): unknown {
 }
 
 export type RawSuggestion = { goal_id: string; task_id?: string | null; title?: string | null; reason: string };
+
+// Server-side backstop for the plan-day "don't re-pick what's already in focus"
+// rule. Used by runPlanDayAgent to drop picks before they reach the modal —
+// the prompt asks the model to skip them too, but LLM compliance is
+// probabilistic and this filter makes the invariant mechanical.
+const selectTaskFocusState = db.prepare(
+  "SELECT lane, pinned FROM tasks WHERE id = :id"
+);
+export function isTaskInActiveFocus(taskId: string): boolean {
+  const row = selectTaskFocusState.get({ id: taskId }) as
+    | { lane: string; pinned: number }
+    | undefined;
+  if (!row) return false;
+  if (row.lane === "now" || row.lane === "today") return true;
+  if (row.lane === "this_week" && row.pinned === 1) return true;
+  return false;
+}
 
 const selectMonthlyById   = db.prepare("SELECT * FROM goals_monthly WHERE id = :id");
 const selectQuarterlyById = db.prepare("SELECT * FROM goals_quarterly WHERE id = :id");

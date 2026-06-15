@@ -26,7 +26,11 @@ export async function runSuggestAgent() {
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 4096,
+      // 16k headroom — same failure mode plan-day.ts hit at 4k (model
+      // stopping with stop_reason=max_tokens before calling its terminal
+      // tool). Keep parity so a fix in one doesn't silently regress the
+      // other.
+      max_tokens: 16384,
       thinking: { type: "adaptive" },
       output_config: { effort: "high" },
       system: SUGGEST_SYSTEM_PROMPT,
@@ -34,6 +38,11 @@ export async function runSuggestAgent() {
       messages,
     });
 
+    if (response.stop_reason === "max_tokens") {
+      throw new Error(
+        "Agent exceeded the per-turn token budget (16k). Try again — the model usually settles on retry.",
+      );
+    }
     if (response.stop_reason !== "tool_use") {
       throw new Error(`Agent stopped without calling a tool (stop_reason=${response.stop_reason}).`);
     }

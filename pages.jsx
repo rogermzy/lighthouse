@@ -3331,13 +3331,22 @@ function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
 
   React.useEffect(() => {
     if (!open) return;
+    // AbortController so closing the modal mid-run cancels the fetch AND
+    // signals the server to bail. Without this, an expensive multi-turn
+    // agent run keeps spending Opus tokens after the user closes the modal
+    // and discards the result on completion.
+    const ctrl = new AbortController();
     let cancelled = false;
     setLoading(true);
     setPicks(null);
     setError(null);
     setRowState({});
     setAcceptingAll(false);
-    fetch("/api/agent/plan-day", { method: "POST", headers: { "Content-Type": "application/json" } })
+    fetch("/api/agent/plan-day", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: ctrl.signal,
+    })
       .then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
@@ -3346,9 +3355,12 @@ function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
         return r.json();
       })
       .then((data) => { if (!cancelled) setPicks(data.picks || []); })
-      .catch((err) => { if (!cancelled) setError(String(err.message || err)); })
+      .catch((err) => {
+        if (err?.name === "AbortError") return;
+        if (!cancelled) setError(String(err.message || err));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; ctrl.abort(); };
   }, [open]);
 
   if (!open) return null;
