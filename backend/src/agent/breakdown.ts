@@ -1,8 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../db/client.js";
 import { getProfileContext } from "../api/profile.js";
-
-const MODEL = "claude-opus-4-7";
+import { MODEL, isAgentConfigured } from "./config.js";
 
 type AnnualRow = {
   id: string; title: string; intent: string | null; context: string | null;
@@ -95,9 +94,7 @@ function daysRemainingInQuarter(now: Date, q: QuarterLabel): number {
   return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 }
 
-export function isBreakdownConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
+export const isBreakdownConfigured = isAgentConfigured;
 
 const BREAKDOWN_TOOL: Anthropic.Tool = {
   name: "return_breakdown",

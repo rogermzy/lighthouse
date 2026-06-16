@@ -1,18 +1,31 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { MODEL, isAgentConfigured } from "./config.js";
 import { TOOL_DEFS, executeTool, enrichSuggestions, type RawSuggestion } from "./tools.js";
 
-const MODEL = "claude-opus-4-7";
+export { isAgentConfigured };
 
-export function isAgentConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+/** Typed error a route can map to a clean user-facing message instead of a
+ *  generic 500 "agent failed". Carries a stable `code` string so the route
+ *  can switch on intent without parsing prose. */
+export class AgentLoopError extends Error {
+  constructor(public code: string, message: string) {
+    super(message);
+    this.name = "AgentLoopError";
+  }
+}
+
+function isValidRawSuggestion(x: unknown): x is RawSuggestion {
+  if (!x || typeof x !== "object") return false;
+  const o = x as Record<string, unknown>;
+  return typeof o.goal_id === "string" && typeof o.reason === "string";
 }
 
 /** Shared agent loop for runSuggestAgent / runPlanDayAgent. Both follow the
  *  same pattern: send a tool-using request, on tool_use execute and append
  *  results, on terminal-tool extract the raw picks list, otherwise iterate
- *  until MAX_ITERATIONS. The diff between the two callers is parameters
- *  (system prompt, opening message, terminal tool name, payload key, budget,
- *  iteration cap, optional post-filter), so they all live in opts. Keeps the
+ *  until maxIterations. The diff between the two callers is parameters
+ *  (system prompt, opening message, terminal tool name, budget, iteration
+ *  cap, optional post-filter), so they all live in opts. Keeps the
  *  Anthropic SDK plumbing (stop_reason handling, signal threading, thinking
  *  config) in one place so a fix in one path can't regress the other.
  *
@@ -21,12 +34,14 @@ export async function runAgentLoop(opts: {
   system: string;
   openingMessage: string;
   terminalToolName: string;
-  payloadKey: string; // e.g. "picks" or "suggestions" inside terminal-tool input
   maxTokens?: number;
   maxIterations?: number;
   signal?: AbortSignal;
   /** Drop picks that shouldn't reach the UI (e.g. already-in-focus tasks
-   *  for plan-day). Runs after the model picks, before enrichSuggestions. */
+   *  for plan-day). Runs after shape-validation, before enrichSuggestions.
+   *  Throw AgentLoopError from here to surface a typed message; returning
+   *  an empty array also surfaces an `all_filtered` error so the modal
+   *  doesn't silently render blank. */
   filterRaw?: (raw: RawSuggestion[]) => RawSuggestion[];
 }) {
   if (!isAgentConfigured()) {
@@ -34,7 +49,7 @@ export async function runAgentLoop(opts: {
   }
 
   const {
-    system, openingMessage, terminalToolName, payloadKey,
+    system, openingMessage, terminalToolName,
     maxTokens = 16384, maxIterations = 10, signal, filterRaw,
   } = opts;
 
@@ -44,7 +59,7 @@ export async function runAgentLoop(opts: {
   ];
 
   for (let i = 0; i < maxIterations; i++) {
-    if (signal?.aborted) throw new Error("aborted");
+    if (signal?.aborted) throw new AgentLoopError("aborted", "aborted");
     const response = await client.messages.create(
       {
         model: MODEL,
@@ -62,14 +77,23 @@ export async function runAgentLoop(opts: {
     // from "model gave up without calling a tool" (refusal/end_turn — not
     // retryable from the same prompt).
     if (response.stop_reason === "max_tokens") {
-      throw new Error(
+      throw new AgentLoopError(
+        "max_tokens",
         `Agent exceeded the per-turn token budget (${maxTokens}). Try again — the model usually settles on retry.`,
       );
     }
     if (response.stop_reason !== "tool_use") {
-      throw new Error(`Agent stopped without calling a tool (stop_reason=${response.stop_reason}).`);
+      throw new AgentLoopError(
+        "no_tool_call",
+        `Agent stopped without calling a tool (stop_reason=${response.stop_reason}).`,
+      );
     }
 
+    // Preserve the FULL assistant turn — Anthropic requires that thinking
+    // blocks round-trip alongside tool_use blocks when the next turn is a
+    // tool_result. Stripping or filtering response.content will make the
+    // very next iteration's messages.create return 400 "thinking blocks
+    // must be preserved with tool_use." Don't "optimize" this push.
     messages.push({ role: "assistant", content: response.content });
 
     const toolUses = response.content.filter(
@@ -78,11 +102,41 @@ export async function runAgentLoop(opts: {
 
     const terminal = toolUses.find((t) => t.name === terminalToolName);
     if (terminal) {
-      const raw = ((terminal.input ?? {}) as Record<string, RawSuggestion[]>)[payloadKey] ?? [];
+      // Both terminal tools (return_plan, return_suggestions) wrap their
+      // payload in `{ picks: RawSuggestion[] }` — schema is enforced
+      // server-side via the tools.ts input_schema, but the model can still
+      // emit a malformed value that satisfies the SDK type. Validate
+      // explicitly so a downstream selectMonthlyById.get({id: undefined})
+      // can't crash with a cryptic node:sqlite error.
+      const rawInput = (terminal.input ?? {}) as Record<string, unknown>;
+      const rawPicks = rawInput.picks;
+      if (!Array.isArray(rawPicks)) {
+        throw new AgentLoopError(
+          "malformed_picks",
+          `Agent's ${terminalToolName} call returned non-array picks.`,
+        );
+      }
+      const raw = rawPicks.filter(isValidRawSuggestion);
+      if (raw.length === 0) {
+        throw new AgentLoopError(
+          "malformed_picks",
+          `Agent's ${terminalToolName} returned no picks with required goal_id + reason.`,
+        );
+      }
       const finalRaw = filterRaw ? filterRaw(raw) : raw;
       if (filterRaw && finalRaw.length < raw.length) {
         console.warn(
-          `[agent] filtered ${raw.length - finalRaw.length} pick(s) from ${terminalToolName}`,
+          `[agent] filtered ${raw.length - finalRaw.length} of ${raw.length} pick(s) from ${terminalToolName}`,
+        );
+      }
+      // If the post-filter drops EVERY pick, the modal would render blank
+      // with no error — distinguish this from "the agent had nothing to
+      // say" so the route can show a useful message ("everything you
+      // picked is already in focus" etc.).
+      if (finalRaw.length === 0) {
+        throw new AgentLoopError(
+          "all_filtered",
+          "Every pick was filtered out — likely all already in active focus.",
         );
       }
       return enrichSuggestions(finalRaw);
@@ -96,5 +150,8 @@ export async function runAgentLoop(opts: {
     messages.push({ role: "user", content: toolResults });
   }
 
-  throw new Error(`Agent exceeded ${maxIterations} iterations without finishing.`);
+  throw new AgentLoopError(
+    "max_iterations",
+    `Agent exceeded ${maxIterations} iterations without finishing.`,
+  );
 }

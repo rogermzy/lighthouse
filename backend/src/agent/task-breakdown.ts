@@ -1,8 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../db/client.js";
 import { getProfileContext } from "../api/profile.js";
-
-const MODEL = "claude-opus-4-7";
+import { MODEL, isAgentConfigured } from "./config.js";
 
 type MonthlyRow = {
   id: string; parent: string; title: string; progress: number; next_step: string | null;
@@ -57,9 +56,7 @@ export type TaskBreakdownResult = {
   relatedExisting: ExistingTaskLink[];
 };
 
-export function isTaskBreakdownConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
+export const isTaskBreakdownConfigured = isAgentConfigured;
 
 const TASK_BREAKDOWN_TOOL: Anthropic.Tool = {
   name: "return_tasks",

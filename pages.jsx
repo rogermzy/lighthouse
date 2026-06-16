@@ -1840,28 +1840,35 @@ function SuggestionModal({ open, onClose, onAcceptAll, onAccept }) {
 
   React.useEffect(() => {
     if (!open) return;
-    let cancelled = false;
+    // Abort the in-flight server run if the modal closes. Without this, a
+    // multi-turn agent burns the full 16k × 8 token budget after the user
+    // walks away. AbortError short-circuits the .catch so the local
+    // fallback only fires on real failures, not on intentional close.
+    const ctrl = new AbortController();
     setLoading(true);
     setSuggestions(null);
     setRowState({});
     setAcceptingAll(false);
-    fetch("/api/suggest", { method: "POST", headers: { "Content-Type": "application/json" } })
+    fetch("/api/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: ctrl.signal,
+    })
       .then(async (r) => {
         if (!r.ok) throw new Error(`status ${r.status}`);
         return r.json();
       })
       .then((data) => {
-        if (cancelled) return;
         setSuggestions(data.suggestions || []);
         setSource("agent");
       })
-      .catch(() => {
-        if (cancelled) return;
+      .catch((err) => {
+        if (err?.name === "AbortError") return;
         setSuggestions(getSuggestions());
         setSource("local");
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => setLoading(false));
+    return () => ctrl.abort();
   }, [open]);
 
   if (!open) return null;
@@ -3332,11 +3339,11 @@ function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
   React.useEffect(() => {
     if (!open) return;
     // AbortController so closing the modal mid-run cancels the fetch AND
-    // signals the server to bail. Without this, an expensive multi-turn
-    // agent run keeps spending Opus tokens after the user closes the modal
-    // and discards the result on completion.
+    // signals the server to bail. The fetch promise rejects with AbortError
+    // when ctrl.abort() fires; the .catch short-circuits on that, so no
+    // separate `cancelled` flag is needed — the rejection itself prevents
+    // .then/.finally from running their state-update branches.
     const ctrl = new AbortController();
-    let cancelled = false;
     setLoading(true);
     setPicks(null);
     setError(null);
@@ -3350,17 +3357,22 @@ function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
       .then(async (r) => {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
-          throw new Error(b.detail || b.error || `status ${r.status}`);
+          // Map server's typed error codes to user-facing copy.
+          const friendly =
+            b.error === "all_filtered" ? "Everything you'd pick is already in focus. Try Today instead."
+            : b.error === "max_tokens"  ? "The planner ran long — try again."
+            : b.detail || b.error || `status ${r.status}`;
+          throw new Error(friendly);
         }
         return r.json();
       })
-      .then((data) => { if (!cancelled) setPicks(data.picks || []); })
+      .then((data) => setPicks(data.picks || []))
       .catch((err) => {
         if (err?.name === "AbortError") return;
-        if (!cancelled) setError(String(err.message || err));
+        setError(String(err.message || err));
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; ctrl.abort(); };
+      .finally(() => setLoading(false));
+    return () => ctrl.abort();
   }, [open]);
 
   if (!open) return null;

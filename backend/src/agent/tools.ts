@@ -82,7 +82,9 @@ export const TOOL_DEFS = [
     input_schema: {
       type: "object",
       properties: {
-        suggestions: {
+        // Shared key with return_plan so the loop can extract picks uniformly
+        // without the caller threading a payload-key string through opts.
+        picks: {
           type: "array",
           minItems: 3,
           maxItems: 3,
@@ -97,7 +99,7 @@ export const TOOL_DEFS = [
           },
         },
       },
-      required: ["suggestions"],
+      required: ["picks"],
     },
   },
   {

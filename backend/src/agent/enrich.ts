@@ -9,8 +9,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createHash } from "node:crypto";
 import { db, nowIso } from "../db/client.js";
+import { MODEL, isAgentConfigured } from "./config.js";
 
-const MODEL = "claude-opus-4-7";
 const BATCH_SIZE = 20;
 
 type TaskForEnrichment = {
@@ -32,9 +32,7 @@ type EnrichmentResult = {
   reasoning: string;
 };
 
-export function isEnrichmentConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
+export const isEnrichmentConfigured = isAgentConfigured;
 
 function loadGoals(): Goal[] {
   const annual = db.prepare("SELECT id, title FROM goals_annual ORDER BY id").all() as { id: string; title: string }[];

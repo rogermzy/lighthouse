@@ -15,14 +15,17 @@ export async function runPlanDayAgent(signal?: AbortSignal) {
     openingMessage:
       "Plan today's focus. Use the tools — start by checking stuck tasks and goals behind pace, then read today's calendar and recent completions. Return 3-5 picks via return_plan.",
     terminalToolName: "return_plan",
-    payloadKey: "picks",
     maxIterations: 10,
     signal,
     // Backstop on the "no re-picking what's already in focus" rule. The
     // prompt asks the model to skip these too, but LLM compliance is
     // probabilistic; this filter makes the invariant mechanical. Picks
-    // without task_id are new tasks (free-form title) and can't be
-    // already-in-focus.
-    filterRaw: (raw) => raw.filter((p) => !p.task_id || !isTaskInActiveFocus(p.task_id)),
+    // without a non-empty task_id string are new tasks (free-form title)
+    // and can't be already-in-focus — guard the type explicitly so the
+    // model emitting task_id="" doesn't slip past as "no task_id".
+    filterRaw: (raw) => raw.filter((p) => {
+      if (typeof p.task_id !== "string" || p.task_id.length === 0) return true;
+      return !isTaskInActiveFocus(p.task_id);
+    }),
   });
 }

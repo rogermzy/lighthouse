@@ -12,7 +12,6 @@ export async function runSuggestAgent(signal?: AbortSignal) {
     openingMessage:
       "Pick today's three. Use the tools to read goals, today's calendar, pending tasks, and recent completions, then call return_suggestions with exactly three picks.",
     terminalToolName: "return_suggestions",
-    payloadKey: "suggestions",
     maxIterations: 8,
     signal,
   });
