@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { SQLInputValue } from "node:sqlite";
 import { db, nowIso, runTx } from "../db/client.js";
 import { runEnrichment } from "../agent/enrich.js";
 import { connectorFor } from "../connectors/registry.js";
@@ -202,7 +203,7 @@ tasksApi.patch("/:id", async (c) => {
     if (!prior) { notFound = true; return; }
 
     const setters: string[] = [];
-    const params: Record<string, unknown> = { id };
+    const params: Record<string, SQLInputValue> = { id };
     let newLane: string | null = null;
 
     if (body.done === true) {

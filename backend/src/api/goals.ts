@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { SQLInputValue } from "node:sqlite";
 import { db } from "../db/client.js";
 import { runBreakdownAgent, isBreakdownConfigured } from "../agent/breakdown.js";
 import {
@@ -99,7 +100,7 @@ goalsApi.patch("/:horizon/:id", async (c) => {
 
   const body = await c.req.json().catch(() => ({}));
   const setters: string[] = [];
-  const params: Record<string, unknown> = { id };
+  const params: Record<string, SQLInputValue> = { id };
 
   for (const [camelKey, val] of Object.entries(body)) {
     const col = allow[camelKey];
@@ -113,8 +114,10 @@ goalsApi.patch("/:horizon/:id", async (c) => {
       if (val !== null && !VALID_TRENDS.has(String(val))) {
         return c.json({ error: `invalid trend: ${val}` }, 400);
       }
+      // val is unknown from JSON.parse, but the guard above proves it's
+      // either null or a string in VALID_TRENDS — both are SQLInputValue.
       setters.push(`${col} = :${col}`);
-      params[col] = val;
+      params[col] = val as string | null;
     } else {
       setters.push(`${col} = :${col}`);
       params[col] = val == null ? null : String(val);
