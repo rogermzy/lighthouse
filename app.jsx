@@ -1450,6 +1450,9 @@ function App() {
     () => (detailTaskId ? tasks.find(t => t.id === detailTaskId) || null : null),
     [detailTaskId, tasks]
   );
+  // Task being broken down (drives SplitTaskModal). Declared here, in read
+  // order, so the Babel-standalone const→var rewrite can't trip the TDZ trap.
+  const [breakdownTask, setBreakdownTask] = useState(null);
   const openDetail = useCallback((id) => setDetailTaskId(id), []);
   const inbox = useMemo(() => tasks.filter(t => t.lane === "inbox"), [tasks]);
   // Today's focus block, hydrated from /api/calendar/focus-block on mount so
@@ -2457,6 +2460,15 @@ function App() {
         open={!!detailTaskId}
         task={detailTask}
         goals={goals}
+        subtasks={detailTask ? tasks.filter(t => t.parentTaskId === detailTask.id) : []}
+        onBreakdown={(t) => setBreakdownTask(t)}
+        onToggleSubtask={async (id) => {
+          // Toggle a child WITHOUT closing the detail pane, so you can work
+          // through several subtasks in a row. Refresh to update "N left" and
+          // reflect the parent's server-side auto-complete.
+          await toggleDone(id);
+          await refreshTasks();
+        }}
         onClose={() => setDetailTaskId(null)}
         onTogglePin={togglePin}
         onToggleDone={async (id) => {
@@ -2496,6 +2508,13 @@ function App() {
           setDetailTaskId(null);
           pinInbox(id);
         }}
+      />
+
+      <SplitTaskModal
+        open={!!breakdownTask}
+        task={breakdownTask}
+        onClose={() => setBreakdownTask(null)}
+        onCommitted={refreshTasks}
       />
 
       <TweaksPanel title="Tweaks">

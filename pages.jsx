@@ -699,10 +699,28 @@ function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onC
 // Compact list section — used for this_month and backlog. No theming, no
 // below-the-line foldout; just a clean grouped list ordered by weight.
 function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail, onChangeLane, emptyText, hideHeader }) {
-  const sorted = useMemo(
-    () => [...tasks].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0)),
-    [tasks],
-  );
+  // Group breakdown children directly under their parent. Top-level tasks sort
+  // by weight; each parent's children follow it (depth 1). Orphans — a child
+  // whose parent isn't in this lane's list (e.g. moved away) — render at top
+  // level so they never silently vanish.
+  const ordered = useMemo(() => {
+    const byParent = {};
+    tasks.forEach(t => { if (t.parentTaskId) (byParent[t.parentTaskId] ||= []).push(t); });
+    const present = new Set(tasks.map(t => t.id));
+    const tops = tasks
+      .filter(t => !t.parentTaskId)
+      .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+    const out = [];
+    tops.forEach(t => {
+      const kids = byParent[t.id] || [];
+      out.push({ task: t, depth: 0, childCount: kids.length });
+      kids.forEach(ch => out.push({ task: ch, depth: 1, childCount: 0 }));
+    });
+    tasks.forEach(t => {
+      if (t.parentTaskId && !present.has(t.parentTaskId)) out.push({ task: t, depth: 0, childCount: 0 });
+    });
+    return out;
+  }, [tasks]);
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: hideHeader ? 0 : 28 }}>
       {!hideHeader && (
@@ -720,17 +738,17 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
           </div>
         </div>
       )}
-      {sorted.length === 0 ? (
+      {ordered.length === 0 ? (
         <div className="empty-state" style={{ padding: "24px 20px" }}>
           <div className="empty-state-icon" />
           <div className="empty-state-sub">{emptyText}</div>
         </div>
       ) : (
         <div className="task-list">
-          {sorted.map(t => (
+          {ordered.map(({ task: t, depth, childCount }) => (
             <div
               key={t.id}
-              className={`task-row no-drag ${doneSet.has(t.id) ? "done" : ""}`}
+              className={`task-row no-drag ${doneSet.has(t.id) ? "done" : ""} ${depth === 1 ? "task-child-indent" : ""}`}
               onClick={() => onOpenDetail?.(t.id)}>
               <button
                 className="check check-btn"
@@ -746,6 +764,9 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
                     </span>
                   )}
                   {t.title}
+                  {childCount > 0 && (
+                    <span className="subtask-badge">{childCount} subtask{childCount === 1 ? "" : "s"}</span>
+                  )}
                 </div>
                 {t.theme && (
                   <div className="task-note" style={{ fontStyle: "italic", color: "var(--muted)" }}>
@@ -2594,7 +2615,7 @@ function SyncStatusLine({ sync, msg, label }) {
    full description, source meta, agent reasoning, and gives
    one-click access to common state changes.
    ───────────────────────────────────────────────────────────── */
-function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLane, onTogglePin, onTriageInbox, onCompleteInbox, onPinInbox }) {
+function TaskDetailModal({ open, task, goals, subtasks, onClose, onToggleDone, onToggleSubtask, onChangeLane, onTogglePin, onTriageInbox, onCompleteInbox, onPinInbox, onBreakdown }) {
   if (!open || !task) return null;
   const source = SOURCES[task.source];
   const tag = TAGS[task.tag];
@@ -2713,6 +2734,21 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
           {task.doneAt   && <span><b>Done</b> · {new Date(task.doneAt).toLocaleString()}</span>}
         </div>
 
+        {subtasks && subtasks.length > 0 && (
+          <div className="task-detail-subtasks">
+            <div className="task-detail-section-label">
+              Subtasks · {subtasks.filter((s) => !s.doneAt).length} left of {subtasks.length}
+            </div>
+            {subtasks.map((s) => (
+              <label key={s.id} className="task-detail-subtask-row">
+                <input type="checkbox" checked={Boolean(s.doneAt)} onChange={() => onToggleSubtask?.(s.id)} />
+                <span className={s.doneAt ? "task-detail-subtask-done" : ""}>{s.title}</span>
+                {s.estimate && <span className="task-detail-subtask-est">{s.estimate}m</span>}
+              </label>
+            ))}
+          </div>
+        )}
+
         {isInbox ? (
           <div className="task-detail-actions">
             <div className="task-detail-lane-picker">
@@ -2762,6 +2798,17 @@ function TaskDetailModal({ open, task, goals, onClose, onToggleDone, onChangeLan
                 title={task.pinned ? "Unpin" : "Pin — promote next when Today opens up"}
                 onClick={() => onTogglePin(task.id, !task.pinned)}>
                 {task.pinned ? "📌 Pinned" : "📌 Pin for next"}
+              </button>
+            )}
+            {/* Break down — only on a top-level task that isn't already split.
+                Hidden on subtasks (one level only) and once children exist
+                (the Subtasks section above takes over). */}
+            {onBreakdown && !task.parentTaskId && (!subtasks || subtasks.length === 0) && (
+              <button
+                className="rec-defer"
+                title="Too big? Split it into small subtasks"
+                onClick={() => onBreakdown(task)}>
+                ⑂ Break down
               </button>
             )}
             <button
@@ -3328,6 +3375,123 @@ function ApiDocs({ apiToken }) {
    stuck-task surfacing. Accept-all cascades Today → Up next
    automatically (no DemoteModal interrupt).
    ───────────────────────────────────────────────────────────── */
+// Review modal for the "Break down" feature. Fetches proposed subtasks on
+// open (writing nothing), lets the user uncheck/edit, then commits the checked
+// set. Named SplitTask* to avoid colliding with the goal-decomposition
+// BreakdownModal / TaskBreakdownModal above. Mirrors PlanDayModal's
+// AbortController-on-close cancellation.
+function SplitTaskModal({ open, task, onClose, onCommitted }) {
+  const [rows, setRows] = React.useState(null);     // [{title, estimateMin, note, reasoning, checked}]
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState(null);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open || !task) return;
+    const ctrl = new AbortController();
+    setLoading(true); setRows(null); setError(null); setSaving(false);
+    fetch(`/api/tasks/${encodeURIComponent(task.id)}/breakdown`, { method: "POST", signal: ctrl.signal })
+      .then(async (r) => {
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          const friendly =
+            b.error === "too_few"    ? "Couldn't split this one — it may already be small enough."
+            : b.error === "is_subtask" ? "This is already a subtask."
+            : b.error && b.error.includes("ANTHROPIC_API_KEY") ? "The breakdown agent isn't configured."
+            : b.detail || b.error || `status ${r.status}`;
+          throw new Error(friendly);
+        }
+        return r.json();
+      })
+      .then((data) => setRows((data.subtasks || []).map((s) => ({ ...s, checked: true }))))
+      .catch((err) => { if (err?.name !== "AbortError") setError(String(err.message || err)); })
+      .finally(() => setLoading(false));
+    return () => ctrl.abort();
+  }, [open, task && task.id]);
+
+  if (!open || !task) return null;
+  const checkedCount = (rows || []).filter((r) => r.checked).length;
+  const update = (i, patch) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  const commit = async () => {
+    setSaving(true); setError(null);
+    try {
+      const subtasks = rows.filter((r) => r.checked).map((r) => ({
+        title: r.title, estimateMin: r.estimateMin, note: r.note, tag: r.tag,
+      }));
+      const r = await fetch(`/api/tasks/${encodeURIComponent(task.id)}/breakdown/commit`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subtasks }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `status ${r.status}`);
+      await onCommitted?.();
+      onClose();
+    } catch (err) { setError(String(err.message || err)); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-halftone" />
+        <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+        <div className="modal-eyebrow">
+          <span>⑂</span> {loading ? "Breaking it down…" : error ? "Couldn't break it down" : "Broken down by Claude"}
+        </div>
+        <h2 className="modal-title">Break this down.<br/><em>{task.title}</em></h2>
+        <p className="modal-sub">
+          {loading ? "Splitting into small, doable steps…"
+            : error ? "Showing nothing rather than a guess — try again in a moment."
+            : "Uncheck any you don't want, tweak the rest, then create them under this task."}
+        </p>
+
+        {error && !loading && (
+          <div className="suggest-list">
+            <div className="suggest-row" style={{ opacity: 0.7 }}>
+              <div className="suggest-body"><div className="suggest-task" style={{ color: "var(--muted)" }}>{error}</div></div>
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="suggest-list">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="suggest-row" style={{ opacity: 0.5 }}>
+                <div className="suggest-body"><div className="suggest-task" style={{ color: "var(--muted)" }}>…</div></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && rows && rows.length > 0 && (
+          <div className="suggest-list">
+            {rows.map((r, i) => (
+              <div key={i} className="suggest-row split-row">
+                <input type="checkbox" className="split-check" checked={r.checked}
+                       onChange={(e) => update(i, { checked: e.target.checked })} />
+                <div className="suggest-body" style={{ flex: 1 }}>
+                  <input className="split-title-input" value={r.title}
+                         onChange={(e) => update(i, { title: e.target.value })} />
+                  {r.reasoning && <div className="suggest-reason">{r.reasoning}</div>}
+                </div>
+                <input type="number" className="split-est-input" value={r.estimateMin} min="5" max="120"
+                       onChange={(e) => update(i, { estimateMin: Number(e.target.value) })} />
+                <span className="split-est-unit">m</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="modal-foot">
+          <button className="modal-secondary" onClick={onClose}>Cancel</button>
+          <button className="modal-primary" disabled={loading || saving || checkedCount === 0} onClick={commit}>
+            {saving ? "Creating…" : `Create ${checkedCount} subtask${checkedCount === 1 ? "" : "s"}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
   const [picks, setPicks] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
@@ -3495,4 +3659,4 @@ function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
   );
 }
 
-Object.assign(window, { CalendarPage, GoalsPage, SuggestionModal, PlanDayModal, SettingsPage, DemoteModal, JournalPage });
+Object.assign(window, { CalendarPage, GoalsPage, SuggestionModal, PlanDayModal, SplitTaskModal, SettingsPage, DemoteModal, JournalPage });

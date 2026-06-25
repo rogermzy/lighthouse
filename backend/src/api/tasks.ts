@@ -136,6 +136,16 @@ const insertChildTask = db.prepare(`
 `);
 const selectLaneFor = db.prepare("SELECT lane, parent_task_id FROM tasks WHERE id = :id");
 
+// Children ladder to the same goal as their parent: copy the parent's
+// enrichment (theme, goal, weight, reasoning) so they group under the same
+// goal in the Tasks view instead of scattering into the ungrouped section.
+// No-op if the parent was never enriched.
+const copyEnrichmentToChild = db.prepare(`
+  INSERT INTO task_enrichment (task_id, theme, primary_goal_id, weight, reasoning, hash, enriched_at)
+  SELECT :childId, theme, primary_goal_id, weight, reasoning, hash, :now
+  FROM task_enrichment WHERE task_id = :parentId
+`);
+
 // Parent roll-up: when a child is checked off, complete the parent iff no open
 // siblings remain; reopening a child un-completes the parent.
 const countOpenSiblings = db.prepare(
@@ -436,6 +446,10 @@ tasksApi.post("/:id/breakdown", async (c) => {
 // Commit the user-approved (edited, checked) subtasks as children of :id.
 // Re-validates server-side — the propose-time enforcement can't be trusted
 // once the payload round-trips through an editable client.
+//
+// Cascade-delete of children when a parent is removed is intentionally NOT
+// implemented: there is no DELETE endpoint for tasks today. Revisit when one
+// is added (children reference parent_task_id with no FK constraint).
 tasksApi.post("/:id/breakdown/commit", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json().catch(() => ({}));
@@ -475,6 +489,7 @@ tasksApi.post("/:id/breakdown/commit", async (c) => {
         parent_task_id: id,
         now,
       });
+      copyEnrichmentToChild.run({ childId, parentId: id, now });
       created.push(childId);
     }
   });
