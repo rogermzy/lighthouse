@@ -2734,6 +2734,18 @@ function TaskDetailModal({ open, task, goals, subtasks, onClose, onToggleDone, o
           {task.doneAt   && <span><b>Done</b> · {new Date(task.doneAt).toLocaleString()}</span>}
         </div>
 
+        {/* Break down — its own inviting block, not crammed into the lane
+            row. Only on a top-level task with no children yet; once children
+            exist the Subtasks section below takes its place. */}
+        {onBreakdown && !task.parentTaskId && (!subtasks || subtasks.length === 0) && (
+          <button
+            className="task-detail-breakdown-btn"
+            title="Split this into small, doable subtasks"
+            onClick={() => onBreakdown(task)}>
+            ⑂ Break this down into subtasks
+          </button>
+        )}
+
         {subtasks && subtasks.length > 0 && (
           <div className="task-detail-subtasks">
             <div className="task-detail-section-label">
@@ -2798,17 +2810,6 @@ function TaskDetailModal({ open, task, goals, subtasks, onClose, onToggleDone, o
                 title={task.pinned ? "Unpin" : "Pin — promote next when Today opens up"}
                 onClick={() => onTogglePin(task.id, !task.pinned)}>
                 {task.pinned ? "📌 Pinned" : "📌 Pin for next"}
-              </button>
-            )}
-            {/* Break down — only on a top-level task that isn't already split.
-                Hidden on subtasks (one level only) and once children exist
-                (the Subtasks section above takes over). */}
-            {onBreakdown && !task.parentTaskId && (!subtasks || subtasks.length === 0) && (
-              <button
-                className="rec-defer"
-                title="Too big? Split it into small subtasks"
-                onClick={() => onBreakdown(task)}>
-                ⑂ Break down
               </button>
             )}
             <button

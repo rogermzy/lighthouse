@@ -5368,6 +5368,27 @@ textarea.editable-input { line-height: 1.5; }
 }
 .split-est-unit { color: var(--muted); font-size: 12px; }
 
+.task-detail-breakdown-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 4px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-sm, 6px);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.task-detail-breakdown-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--paper-2);
+}
+
 .task-detail-subtasks { margin: 14px 0 4px; }
 .task-detail-subtask-row {
   display: flex;
