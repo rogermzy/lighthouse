@@ -2740,9 +2740,10 @@ function TaskDetailModal({ open, task, goals, subtasks, onClose, onToggleDone, o
         {onBreakdown && !task.parentTaskId && (!subtasks || subtasks.length === 0) && (
           <button
             className="task-detail-breakdown-btn"
-            title="Split this into small, doable subtasks"
+            title="Break down into subtasks"
+            aria-label="Break down into subtasks"
             onClick={() => onBreakdown(task)}>
-            ⑂ Break this down into subtasks
+            ⑂
           </button>
         )}
 

@@ -5371,14 +5371,16 @@ textarea.editable-input { line-height: 1.5; }
 .task-detail-breakdown-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
   margin: 14px 0 4px;
-  padding: 8px 14px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 17px;
+  line-height: 1;
   color: var(--muted);
   background: transparent;
-  border: 1px dashed var(--rule);
+  border: 1px solid var(--rule);
   border-radius: var(--r-sm, 6px);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
