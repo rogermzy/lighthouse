@@ -5417,7 +5417,8 @@ textarea.editable-input { line-height: 1.5; }
   border-radius: 999px;
   vertical-align: middle;
 }
-.task-child-indent { margin-left: 22px; position: relative; }
+/* Indent depth is set inline (depth * 22px) so multi-level breakdowns nest. */
+.task-child-indent { position: relative; }
 .task-child-indent::before {
   content: "└";
   position: absolute;

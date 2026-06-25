@@ -4,7 +4,7 @@ import type { SQLInputValue } from "node:sqlite";
 import Anthropic from "@anthropic-ai/sdk";
 import { db, nowIso, runTx } from "../db/client.js";
 import { runEnrichment } from "../agent/enrich.js";
-import { runSplitTaskAgent, SplitTaskError } from "../agent/split-task.js";
+import { runSplitTaskAgent, SplitTaskError, taskDepth, MAX_BREAKDOWN_DEPTH } from "../agent/split-task.js";
 import { connectorFor } from "../connectors/registry.js";
 import { recordSyncError } from "../sync/reconcile.js";
 
@@ -146,16 +146,18 @@ const copyEnrichmentToChild = db.prepare(`
   FROM task_enrichment WHERE task_id = :parentId
 `);
 
-// Parent roll-up: when a child is checked off, complete the parent iff no open
-// siblings remain; reopening a child un-completes the parent.
-const countOpenSiblings = db.prepare(
-  "SELECT COUNT(*) AS n FROM tasks WHERE parent_task_id = :pid AND done_at IS NULL AND id != :childId",
+// Parent roll-up walks UP the tree: completing a task's last open child
+// completes the parent, which may complete the grandparent, and so on.
+// Reopening a child clears done_at on each completed ancestor up the chain.
+const countOpenChildren = db.prepare(
+  "SELECT COUNT(*) AS n FROM tasks WHERE parent_task_id = :pid AND done_at IS NULL",
 );
+const getParentOf = db.prepare("SELECT parent_task_id FROM tasks WHERE id = :id");
 const setParentDone = db.prepare(
   "UPDATE tasks SET done_at = :now, updated_at = :now WHERE id = :pid AND done_at IS NULL",
 );
 const clearParentDone = db.prepare(
-  "UPDATE tasks SET done_at = NULL, updated_at = :now WHERE id = :pid",
+  "UPDATE tasks SET done_at = NULL, updated_at = :now WHERE id = :pid AND done_at IS NOT NULL",
 );
 
 function rowToWire(r: TaskRow) {
@@ -378,17 +380,31 @@ tasksApi.patch("/:id", async (c) => {
         renumberLane("now");
       }
 
-      // Roll completion up: if this was the last open child, complete the
-      // umbrella parent too. Local-only — never written back to the source.
-      if (prior.parent_task_id) {
-        const { n } = countOpenSiblings.get({ pid: prior.parent_task_id, childId: id }) as { n: number };
-        if (n === 0) setParentDone.run({ pid: prior.parent_task_id, now: nowIso() });
+      // Roll completion UP the chain: the child is already marked done above,
+      // so walk ancestors — complete each whose children are now all done, and
+      // stop at the first that still has open children (or is already done).
+      // Local-only — never written back to the source.
+      let pid = prior.parent_task_id;
+      while (pid) {
+        const { n } = countOpenChildren.get({ pid }) as { n: number };
+        if (n > 0) break;
+        const res = setParentDone.run({ pid, now: nowIso() });
+        if (res.changes === 0) break; // already done → ancestors already settled
+        const up = getParentOf.get({ id: pid }) as { parent_task_id: string | null } | undefined;
+        pid = up?.parent_task_id ?? null;
       }
     } else if (body.done === false && prior.done_at !== null) {
       doneTransition = false;
 
-      // Reopening a child un-completes the umbrella — it's no longer fully done.
-      if (prior.parent_task_id) clearParentDone.run({ pid: prior.parent_task_id, now: nowIso() });
+      // Reopening a child un-completes every completed ancestor — the tree is
+      // no longer fully done. Stop at the first ancestor that wasn't done.
+      let pid = prior.parent_task_id;
+      while (pid) {
+        const res = clearParentDone.run({ pid, now: nowIso() });
+        if (res.changes === 0) break; // wasn't done → ancestors weren't either
+        const up = getParentOf.get({ id: pid }) as { parent_task_id: string | null } | undefined;
+        pid = up?.parent_task_id ?? null;
+      }
     }
   });
 
@@ -429,6 +445,7 @@ tasksApi.post("/:id/breakdown", async (c) => {
       return c.json({ error: "not found" }, 404);
     }
     if (err instanceof SplitTaskError) {
+      // too_deep / too_few / malformed → 422 with the typed code for the modal.
       return c.json({ error: err.code, detail: err.message }, 422);
     }
     if (err instanceof Anthropic.RateLimitError) {
@@ -459,7 +476,9 @@ tasksApi.post("/:id/breakdown/commit", async (c) => {
     | { lane: string; parent_task_id: string | null }
     | undefined;
   if (!parent) return c.json({ error: "not found" }, 404);
-  if (parent.parent_task_id) return c.json({ error: "is_subtask" }, 422);
+  // Multi-level breakdown is allowed up to MAX_BREAKDOWN_DEPTH; refuse to nest
+  // a leaf deeper than that.
+  if (taskDepth(id) >= MAX_BREAKDOWN_DEPTH) return c.json({ error: "too_deep" }, 422);
 
   const clean = items
     .filter((x: Record<string, unknown>) => x && typeof x.title === "string" && (x.title as string).trim())

@@ -28,12 +28,37 @@ type TaskRow = {
 const selectTask = db.prepare(
   "SELECT id, title, note, project, estimate_min, parent_task_id FROM tasks WHERE id = :id",
 );
+const selectParent = db.prepare("SELECT parent_task_id FROM tasks WHERE id = :id");
 
-const SYSTEM = `You break ONE oversized task into 2–8 small, concrete next-actions for an
-ADHD user who stalls on big tasks. Each subtask must be a single sitting
-(5–60 min), start with a verb, and be independently checkable. Do NOT restate
-the parent; produce the actual steps. Prefer fewer, real steps over padding.
-Call return_subtasks exactly once.`;
+// Breakdown is multi-level: a big task splits into a few high-level chunks,
+// and any chunk can be broken down again into finer steps. Cap the nesting so
+// it can't run away and the roll-up loop stays bounded. A task at this depth
+// (root = 0) can no longer be broken down — handle its steps directly.
+export const MAX_BREAKDOWN_DEPTH = 4;
+
+/** Number of ancestors above `id` (root = 0). Bounded walk up parent_task_id. */
+export function taskDepth(id: string): number {
+  let depth = 0;
+  let cur: string | null = id;
+  let guard = 0;
+  while (cur && guard++ < 32) {
+    const row = selectParent.get({ id: cur }) as { parent_task_id: string | null } | undefined;
+    if (!row || !row.parent_task_id) break;
+    depth++;
+    cur = row.parent_task_id;
+  }
+  return depth;
+}
+
+const SYSTEM = `You break ONE task into 2–8 next-actions for an ADHD user who stalls on
+big tasks. Match the ALTITUDE to the task's size:
+• If the work is large or multi-phase, return a few HIGH-LEVEL CHUNKS
+  (phases/milestones) — each can itself be broken down further later. Don't
+  cram 15 tiny steps into one list; that overwhelms. Coarse is correct here.
+• If the task is already a small sub-part, return concrete single-sitting
+  steps (5–60 min each).
+Always 2–8 items, each starting with a verb and independently checkable. Do
+NOT restate the parent. Call return_subtasks exactly once.`;
 
 const TOOL: Anthropic.Tool = {
   name: "return_subtasks",
@@ -77,13 +102,19 @@ export async function runSplitTaskAgent(
 
   const task = selectTask.get({ id: taskId }) as TaskRow | undefined;
   if (!task) throw new SplitTaskError("not_found", `task ${taskId} not found`);
-  if (task.parent_task_id) {
-    throw new SplitTaskError("is_subtask", "subtasks can't be broken down further");
+  const depth = taskDepth(taskId);
+  if (depth >= MAX_BREAKDOWN_DEPTH) {
+    throw new SplitTaskError("too_deep", "this is nested deep enough — handle these steps directly");
   }
 
   const profile = getProfileContext();
+  // Steer altitude by depth: top-level can be coarse phases; deeper levels
+  // should be concrete single-sitting steps.
+  const altitudeHint = depth === 0
+    ? "If this is large or multi-phase, return high-level chunks that can each be broken down further — not fine steps."
+    : "This is already a sub-part — return concrete, single-sitting steps.";
   const opening =
-    `Break down this task.\n\nTitle: ${task.title}\n` +
+    `Break down this task. ${altitudeHint}\n\nTitle: ${task.title}\n` +
     (task.note ? `Notes: ${task.note}\n` : "") +
     (task.project ? `Project: ${task.project}\n` : "") +
     (task.estimate_min ? `Current estimate: ${task.estimate_min}m\n` : "") +

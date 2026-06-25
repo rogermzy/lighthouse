@@ -699,26 +699,24 @@ function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onC
 // Compact list section — used for this_month and backlog. No theming, no
 // below-the-line foldout; just a clean grouped list ordered by weight.
 function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail, onChangeLane, emptyText, hideHeader }) {
-  // Group breakdown children directly under their parent. Top-level tasks sort
-  // by weight; each parent's children follow it (depth 1). Orphans — a child
-  // whose parent isn't in this lane's list (e.g. moved away) — render at top
-  // level so they never silently vanish.
+  // Group breakdown children under their parent at ANY depth (multi-level
+  // breakdown). Top-level tasks sort by weight; each task's children follow it,
+  // depth-first, one level deeper. Orphans — a child whose parent isn't in this
+  // lane's list (e.g. moved away) — render at top level so they never vanish.
   const ordered = useMemo(() => {
     const byParent = {};
-    tasks.forEach(t => { if (t.parentTaskId) (byParent[t.parentTaskId] ||= []).push(t); });
+    tasks.forEach(t => { const k = t.parentTaskId || "__root"; (byParent[k] ||= []).push(t); });
     const present = new Set(tasks.map(t => t.id));
-    const tops = tasks
-      .filter(t => !t.parentTaskId)
-      .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
     const out = [];
-    tops.forEach(t => {
-      const kids = byParent[t.id] || [];
-      out.push({ task: t, depth: 0, childCount: kids.length });
-      kids.forEach(ch => out.push({ task: ch, depth: 1, childCount: 0 }));
-    });
-    tasks.forEach(t => {
-      if (t.parentTaskId && !present.has(t.parentTaskId)) out.push({ task: t, depth: 0, childCount: 0 });
-    });
+    const walk = (node, depth) => {
+      const kids = byParent[node.id] || [];
+      out.push({ task: node, depth, childCount: kids.length });
+      kids.forEach(ch => walk(ch, depth + 1));
+    };
+    const roots = (byParent["__root"] || []).slice();
+    tasks.forEach(t => { if (t.parentTaskId && !present.has(t.parentTaskId)) roots.push(t); });
+    roots.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+    roots.forEach(r => walk(r, 0));
     return out;
   }, [tasks]);
   return (
@@ -748,7 +746,8 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
           {ordered.map(({ task: t, depth, childCount }) => (
             <div
               key={t.id}
-              className={`task-row no-drag ${doneSet.has(t.id) ? "done" : ""} ${depth === 1 ? "task-child-indent" : ""}`}
+              className={`task-row no-drag ${doneSet.has(t.id) ? "done" : ""} ${depth > 0 ? "task-child-indent" : ""}`}
+              style={depth > 0 ? { marginLeft: depth * 22 } : undefined}
               onClick={() => onOpenDetail?.(t.id)}>
               <button
                 className="check check-btn"
@@ -2735,9 +2734,10 @@ function TaskDetailModal({ open, task, goals, subtasks, onClose, onToggleDone, o
         </div>
 
         {/* Break down — its own inviting block, not crammed into the lane
-            row. Only on a top-level task with no children yet; once children
-            exist the Subtasks section below takes its place. */}
-        {onBreakdown && !task.parentTaskId && (!subtasks || subtasks.length === 0) && (
+            row. Shows on any leaf task (top-level OR a subtask, so you can
+            drill deeper); once children exist the Subtasks section below takes
+            its place. The server enforces the max nesting depth. */}
+        {onBreakdown && (!subtasks || subtasks.length === 0) && (
           <button
             className="task-detail-breakdown-btn"
             title="Break down into subtasks"
@@ -3397,8 +3397,8 @@ function SplitTaskModal({ open, task, onClose, onCommitted }) {
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
           const friendly =
-            b.error === "too_few"    ? "Couldn't split this one — it may already be small enough."
-            : b.error === "is_subtask" ? "This is already a subtask."
+            b.error === "too_few"   ? "Couldn't split this one — it may already be small enough."
+            : b.error === "too_deep" ? "This is nested deep enough — tackle these steps directly."
             : b.error && b.error.includes("ANTHROPIC_API_KEY") ? "The breakdown agent isn't configured."
             : b.detail || b.error || `status ${r.status}`;
           throw new Error(friendly);
