@@ -1,7 +1,10 @@
 import { Hono } from "hono";
+import { randomUUID } from "node:crypto";
 import type { SQLInputValue } from "node:sqlite";
+import Anthropic from "@anthropic-ai/sdk";
 import { db, nowIso, runTx } from "../db/client.js";
 import { runEnrichment } from "../agent/enrich.js";
+import { runSplitTaskAgent, SplitTaskError } from "../agent/split-task.js";
 import { connectorFor } from "../connectors/registry.js";
 import { recordSyncError } from "../sync/reconcile.js";
 
@@ -21,6 +24,7 @@ type TaskRow = {
   position: number;
   url: string | null;
   done_at: string | null;
+  parent_task_id: string | null;
   theme: string | null;
   primary_goal_id: string | null;
   weight: number | null;
@@ -39,7 +43,7 @@ const TODAY_CAP = 3;
 const countTodayUndone = db.prepare(
   "SELECT COUNT(*) as n FROM tasks WHERE lane = 'today' AND done_at IS NULL"
 );
-const selectCurrentLane = db.prepare("SELECT lane, done_at, position FROM tasks WHERE id = :id");
+const selectCurrentLane = db.prepare("SELECT lane, done_at, position, parent_task_id FROM tasks WHERE id = :id");
 
 // Returns open tasks plus anything completed today, so a check survives reload
 // for the rest of the day before the row falls off. Joins enrichment so the
@@ -48,6 +52,7 @@ const selectCurrentLane = db.prepare("SELECT lane, done_at, position FROM tasks 
 const selectVisible = db.prepare(`
   SELECT t.id, t.source, t.external_id, t.title, t.note, t.project, t.tag,
          t.estimate_min, t.due, t.lane, t.big_rock, t.pinned, t.position, t.url, t.done_at,
+         t.parent_task_id,
          e.theme, e.primary_goal_id, e.weight, e.reasoning
   FROM tasks t
   LEFT JOIN task_enrichment e ON e.task_id = t.id
@@ -118,6 +123,31 @@ const insertCompletion = db.prepare(`
   VALUES (:task_id, :done_at, :source, :est_min)
 `);
 
+// Breakdown: children are local ('self') tasks carrying parent_task_id, landing
+// at the end of the parent's lane.
+const insertChildTask = db.prepare(`
+  INSERT INTO tasks
+    (id, source, external_id, title, note, project, tag, estimate_min, due, lane,
+     big_rock, pinned, position, parent_task_id, done_at, created_at, updated_at)
+  VALUES
+    (:id, 'self', NULL, :title, :note, NULL, :tag, :estimate_min, NULL, :lane,
+     0, 0, (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE lane = :lane),
+     :parent_task_id, NULL, :now, :now)
+`);
+const selectLaneFor = db.prepare("SELECT lane, parent_task_id FROM tasks WHERE id = :id");
+
+// Parent roll-up: when a child is checked off, complete the parent iff no open
+// siblings remain; reopening a child un-completes the parent.
+const countOpenSiblings = db.prepare(
+  "SELECT COUNT(*) AS n FROM tasks WHERE parent_task_id = :pid AND done_at IS NULL AND id != :childId",
+);
+const setParentDone = db.prepare(
+  "UPDATE tasks SET done_at = :now, updated_at = :now WHERE id = :pid AND done_at IS NULL",
+);
+const clearParentDone = db.prepare(
+  "UPDATE tasks SET done_at = NULL, updated_at = :now WHERE id = :pid",
+);
+
 function rowToWire(r: TaskRow) {
   return {
     id: r.id,
@@ -134,6 +164,7 @@ function rowToWire(r: TaskRow) {
     position: r.position,
     url: r.url ?? undefined,
     doneAt: r.done_at ?? undefined,
+    parentTaskId: r.parent_task_id ?? undefined,
     theme: r.theme ?? undefined,
     primaryGoalId: r.primary_goal_id ?? undefined,
     weight: r.weight ?? undefined,
@@ -172,6 +203,7 @@ const FIELD_SQL: Record<string, string> = {
 };
 
 const VALID_LANES = new Set(["now", "today", "this_week", "this_month", "backlog"]);
+const VALID_TAGS = new Set(["deep", "shallow", "admin", "comms", "personal", "errand"]);
 
 tasksApi.patch("/:id", async (c) => {
   const id = c.req.param("id");
@@ -198,7 +230,7 @@ tasksApi.patch("/:id", async (c) => {
   // count=2, and so the Now displacement is atomic.
   runTx(() => {
     const prior = selectCurrentLane.get({ id }) as
-      | { lane: string; done_at: string | null; position: number }
+      | { lane: string; done_at: string | null; position: number; parent_task_id: string | null }
       | undefined;
     if (!prior) { notFound = true; return; }
 
@@ -335,8 +367,18 @@ tasksApi.patch("/:id", async (c) => {
         renumberLane("today");
         renumberLane("now");
       }
+
+      // Roll completion up: if this was the last open child, complete the
+      // umbrella parent too. Local-only — never written back to the source.
+      if (prior.parent_task_id) {
+        const { n } = countOpenSiblings.get({ pid: prior.parent_task_id, childId: id }) as { n: number };
+        if (n === 0) setParentDone.run({ pid: prior.parent_task_id, now: nowIso() });
+      }
     } else if (body.done === false && prior.done_at !== null) {
       doneTransition = false;
+
+      // Reopening a child un-completes the umbrella — it's no longer fully done.
+      if (prior.parent_task_id) clearParentDone.run({ pid: prior.parent_task_id, now: nowIso() });
     }
   });
 
@@ -356,4 +398,85 @@ tasksApi.patch("/:id", async (c) => {
   if (doneTransition !== null) pushDoneToSource(id, doneTransition);
 
   return c.json({ ok: true });
+});
+
+// Propose a breakdown of one task into small subtasks. Writes NOTHING — the
+// user reviews/edits in the modal, then POSTs to /breakdown/commit. Mirrors
+// plan-day.ts's typed error branches (abort 499 before the generic APIError).
+tasksApi.post("/:id/breakdown", async (c) => {
+  const id = c.req.param("id");
+  try {
+    const subtasks = await runSplitTaskAgent(id, c.req.raw.signal);
+    return c.json({ subtasks });
+  } catch (err) {
+    if (err instanceof Anthropic.APIUserAbortError) {
+      return new Response(JSON.stringify({ error: "aborted" }), {
+        status: 499,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (err instanceof SplitTaskError && err.code === "not_found") {
+      return c.json({ error: "not found" }, 404);
+    }
+    if (err instanceof SplitTaskError) {
+      return c.json({ error: err.code, detail: err.message }, 422);
+    }
+    if (err instanceof Anthropic.RateLimitError) {
+      return c.json({ error: "rate limited", detail: err.message }, 429);
+    }
+    if (err instanceof Anthropic.APIError) {
+      return c.json({ error: "anthropic api error", detail: err.message }, 502);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("ANTHROPIC_API_KEY")) return c.json({ error: msg }, 503);
+    return c.json({ error: "agent failed", detail: msg }, 500);
+  }
+});
+
+// Commit the user-approved (edited, checked) subtasks as children of :id.
+// Re-validates server-side — the propose-time enforcement can't be trusted
+// once the payload round-trips through an editable client.
+tasksApi.post("/:id/breakdown/commit", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const items = Array.isArray(body.subtasks) ? body.subtasks : [];
+
+  const parent = selectLaneFor.get({ id }) as
+    | { lane: string; parent_task_id: string | null }
+    | undefined;
+  if (!parent) return c.json({ error: "not found" }, 404);
+  if (parent.parent_task_id) return c.json({ error: "is_subtask" }, 422);
+
+  const clean = items
+    .filter((x: Record<string, unknown>) => x && typeof x.title === "string" && (x.title as string).trim())
+    .slice(0, 8)
+    .map((x: Record<string, unknown>) => ({
+      title: String(x.title).trim().slice(0, 200),
+      note: typeof x.note === "string" ? x.note : "",
+      estimate_min: Number.isFinite(x.estimateMin)
+        ? Math.max(5, Math.min(120, Math.round(x.estimateMin as number)))
+        : 15,
+      tag: VALID_TAGS.has(x.tag as string) ? (x.tag as string) : "shallow",
+    }));
+  if (clean.length === 0) return c.json({ error: "no_subtasks" }, 400);
+
+  const now = nowIso();
+  const created: string[] = [];
+  runTx(() => {
+    for (const s of clean) {
+      const childId = randomUUID();
+      insertChildTask.run({
+        id: childId,
+        title: s.title,
+        note: s.note,
+        tag: s.tag,
+        estimate_min: s.estimate_min,
+        lane: parent.lane,
+        parent_task_id: id,
+        now,
+      });
+      created.push(childId);
+    }
+  });
+  return c.json({ ok: true, created });
 });

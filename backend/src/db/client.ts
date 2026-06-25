@@ -106,6 +106,17 @@ if (!taskCols.some((c) => c.name === "position")) {
   }
 }
 
+// Breakdown feature: links a small child task to its umbrella parent. Null for
+// every normal task; only breakdown-children point at a parent. The index is
+// partial so it stays tiny. CREATE INDEX lives here (not schema.sql) because
+// the column is freshly added — schema.sql runs before these ALTERs.
+if (!taskCols.some((c) => c.name === "parent_task_id")) {
+  db.exec("ALTER TABLE tasks ADD COLUMN parent_task_id TEXT");
+}
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id) WHERE parent_task_id IS NOT NULL",
+);
+
 export function nowIso(): string {
   return new Date().toISOString();
 }
