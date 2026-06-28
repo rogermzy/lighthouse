@@ -51,7 +51,7 @@ Valid source names: `gcal`, `gmail`, `gtasks`, `clickup`, `notion`, `workflowy`,
 - **Adding an index on a new column**: schema.sql runs before client.ts ALTERs, so `CREATE INDEX` on a freshly-added column belongs in `client.ts` after the ALTER, not in `schema.sql`.
 - **Babel-in-browser turns `const` → `var`**: TDZ semantics are lost. If a `useMemo` references a state var declared later in the function body, you get `undefined.method()` instead of a ReferenceError. Declare state in the order it's read.
 - **Anthropic SDK on Opus 4.7**: use `thinking: {type: "adaptive"}`, not `budget_tokens`. Forced `tool_choice` is incompatible with `thinking` — drop the thinking block when forcing a tool.
-- **Lane names**: current taxonomy is `now` / `today` / `week` / `later`. Old names (`focus` / `ondeck` / `someday`) were renamed and migrated — don't reintroduce them.
+- **Lane names**: the DB/API taxonomy is `now` / `today` / `this_week` / `this_month` / `backlog` (see `VALID_LANES` in `backend/src/api/tasks.ts`). The UI labels these **Now / Today / Week / Month / Later**, but always persist the lane *keys*, not the labels. Old names (`focus` / `ondeck` / `someday`) were renamed and migrated — don't reintroduce them.
 
 ## Connector gotchas
 
