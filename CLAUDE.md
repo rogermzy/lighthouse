@@ -30,7 +30,7 @@ Valid source names: `gcal`, `gmail`, `gtasks`, `clickup`, `notion`, `workflowy`,
 ## Architecture in 60 seconds
 
 - **Frontend** (repo root): React 18 + Babel-standalone, no build step. `app.jsx`, `pages.jsx`, `data.jsx`, `styles.css`, `Lighthouse Dashboard.html`.
-- **Backend** (`backend/`): Hono server on Node 24's built-in `node:sqlite`. One process handles HTTP, the sync loop, OAuth, and two Claude agents (enrichment + suggest).
+- **Backend** (`backend/`): Hono server on Node 24's built-in `node:sqlite`. One process handles HTTP, the sync loop, OAuth, and the Claude agents in `backend/src/agent/` (`enrich`, `suggest`, `plan-day`, `split-task`, plus the goal-decomposition `breakdown` / `task-breakdown`).
 - **Data model**: one `tasks` table is the unified pool. External items upsert by `(source, external_id)`. Roger-owned fields (`lane`, `position`, `big_rock`, `tag`) are NEVER overwritten by sync; source-owned fields (`title`, `note`, `project`, `estimate_min`, `due`, `url`) refresh every tick. `done_at` is special: sync may SET it when the source reports a task complete (so a task finished in the source shows as done here too), but never CLEARS one already set — `COALESCE(done_at, excluded.done_at)` — so a source can't resurrect a task Roger already checked off. Logic lives in `backend/src/sync/reconcile.ts`.
 - **DB**: `backend/data.db` — SQLite WAL mode, single file. Holds tasks, journal, goals, enrichment cache, sync state. Read-then-write paths use `BEGIN IMMEDIATE` so concurrent PATCHes can't race.
 
