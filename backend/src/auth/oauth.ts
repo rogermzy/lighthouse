@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
@@ -90,6 +91,11 @@ function redirectUri(): string {
 
 export const authRouter = new Hono();
 
+// CSRF `state` for the OAuth round-trip. Single-user, single-process: one
+// pending state at a time is enough. Cleared on use so a code can't be
+// replayed against a stale state.
+let pendingOAuthState: string | null = null;
+
 authRouter.get("/google", (c) => {
   if (!isGoogleOAuthConfigured()) {
     return c.text(
@@ -102,10 +108,12 @@ authRouter.get("/google", (c) => {
     process.env.GOOGLE_CLIENT_SECRET,
     redirectUri()
   );
+  pendingOAuthState = randomBytes(16).toString("hex");
   const url = client.generateAuthUrl({
     access_type: "offline", // request refresh_token
     prompt: "consent",      // always re-issue refresh_token so we don't lose it
     scope: SCOPES,
+    state: pendingOAuthState,
   });
   return c.redirect(url);
 });
@@ -114,6 +122,11 @@ authRouter.get("/google/callback", async (c) => {
   const code = c.req.query("code");
   if (!code) return c.text("Missing ?code in callback URL.", 400);
   if (!isGoogleOAuthConfigured()) return c.text("Google OAuth not configured.", 503);
+  const state = c.req.query("state");
+  if (!pendingOAuthState || state !== pendingOAuthState) {
+    return c.text("OAuth state mismatch — restart the flow at /auth/google.", 400);
+  }
+  pendingOAuthState = null;
 
   const client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,

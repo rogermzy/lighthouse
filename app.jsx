@@ -333,6 +333,13 @@ function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway, on
   const [running, setRunning] = useState(false);
   const [remaining, setRemaining] = useState(TOTAL);
 
+  // Fresh pomodoro per task: without this, finishing task A at 10:00 elapsed
+  // hands task B a 15:00 timer already "in flow" via auto-advance.
+  useEffect(() => {
+    setRunning(false);
+    setRemaining(TOTAL);
+  }, [task?.id]);
+
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => {
@@ -340,6 +347,12 @@ function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway, on
     }, 1000);
     return () => clearInterval(id);
   }, [running]);
+
+  // Stop at zero — otherwise the ring sits at 00:00 "in flow" with the
+  // interval firing forever.
+  useEffect(() => {
+    if (remaining === 0 && running) setRunning(false);
+  }, [remaining, running]);
 
   const pct = remaining / TOTAL;
   const C = 2 * Math.PI * 52;
@@ -379,7 +392,7 @@ function FocusCard({ task, focusMode, setFocusMode, onOpenDetail, onStepAway, on
         </h2>
         <p className="focus-note">{task.note}</p>
         <div className="focus-meta">
-          <span className="chip">{SOURCES[task.source].label} · {task.project}</span>
+          <span className="chip">{SOURCES[task.source]?.label || task.source} · {task.project}</span>
           <TagChip id={task.tag} />
           <span><b style={{ color: "rgba(244,236,219,0.85)" }}>{task.estimate}</b> min budgeted</span>
           <span>·</span>
@@ -513,7 +526,9 @@ function rankRecommendations(eligible, slotsLeft) {
 }
 
 function TodayList({ tasks, toggleDone, doneSet, weekTasks, onPromote, onDefer, onOpenDetail, onStartNow, nowTaskId, onReorder }) {
-  const openCount = tasks.filter(t => !doneSet.has(t.id)).length;
+  // Top-level only, mirroring the server's cap semantics: breakdown children
+  // ride along with their parent and don't consume Today slots.
+  const openCount = tasks.filter(t => !doneSet.has(t.id) && !t.parentTaskId).length;
   const slotsLeft = Math.max(0, TODAY_CAP - openCount);
 
   // Sort done items to the bottom while preserving relative order within each
@@ -1049,11 +1064,34 @@ function DoneTodayCard({ count }) {
 }
 
 function WeekGlance() {
+  // Real current-week range + a load-derived tip — the bars were live data
+  // but the label/advice used to be leftover mock copy.
+  const { rangeLabel, tip } = useMemo(() => {
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const now = new Date();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const label = monday.getMonth() === sunday.getMonth()
+      ? `${MONTHS[monday.getMonth()]} ${monday.getDate()} – ${sunday.getDate()}`
+      : `${MONTHS[monday.getMonth()]} ${monday.getDate()} – ${MONTHS[sunday.getMonth()]} ${sunday.getDate()}`;
+    const upcoming = (WEEK || []).filter(d => !d.past);
+    const heaviest = upcoming.length
+      ? upcoming.reduce((a, b) => ((b.load ?? 0) > (a.load ?? 0) ? b : a))
+      : null;
+    return {
+      rangeLabel: label,
+      tip: heaviest && (heaviest.load ?? 0) >= 0.7
+        ? <>Looks like <b style={{ color: "var(--ink-2)" }}>{heaviest.day}</b> is the heavy day — protect a focus block before it.</>
+        : null,
+    };
+  }, []);
   return (
     <div className="rail-card">
       <div className="rail-head">
         <h3>The week</h3>
-        <span className="muted">May 11 – 17</span>
+        <span className="muted">{rangeLabel}</span>
       </div>
       <div className="week-grid">
         {WEEK.map((d, i) => (
@@ -1066,9 +1104,11 @@ function WeekGlance() {
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 12, fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
-        Friday is heavy. Consider <b style={{ color: "var(--ink-2)" }}>moving the contractor doc</b> to Wednesday.
-      </div>
+      {tip && (
+        <div style={{ marginTop: 12, fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
+          {tip}
+        </div>
+      )}
     </div>
   );
 }
@@ -1135,8 +1175,8 @@ function InboxCard({ items, triage, onComplete, onOpenDetail, onOpen }) {
               aria-label="Mark done">
               <Icon.check />
             </button>
-            <span className="inbox-source" style={{ background: SOURCES[it.source].color }}>
-              {SOURCES[it.source].glyph}
+            <span className="inbox-source" style={{ background: SOURCES[it.source]?.color || "var(--muted-2)" }}>
+              {SOURCES[it.source]?.glyph || "•"}
             </span>
             <div className="inbox-body">
               <span className="inbox-title">{it.title}</span>
@@ -1707,14 +1747,40 @@ function App() {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+    const revert = () => setDoneSet(s => {
+      const n = new Set(s);
+      willBeDone ? n.delete(id) : n.add(id);
+      return n;
+    });
     // Return the fetch promise so callers that need to refresh *after* the
     // server has committed (FocusCard Done → auto-advance, modal Mark done →
     // refresh new Now task) can await it. Fire-and-forget callers ignore.
+    //
+    // A failed PATCH must revert the optimistic toggle: refreshTasks folds
+    // doneSet as union-only (never removes), so a stuck optimistic "done"
+    // would survive every refresh until a hard reload.
     return fetch(`/api/tasks/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ done: willBeDone }),
-    }).catch(err => console.warn("toggleDone failed:", err));
+    }).then(async (r) => {
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        revert();
+        setToast({ kind: "warn", text: body.message || `Couldn't update the task (${r.status}).` });
+        return r;
+      }
+      const body = await r.json().catch(() => ({}));
+      if (body.demotedTo === "this_week") {
+        setToast({ kind: "warn", text: "Today had refilled — reopened into Up next instead." });
+        await refreshTasks();
+      }
+      return r;
+    }).catch(err => {
+      console.warn("toggleDone failed:", err);
+      revert();
+      setToast({ kind: "warn", text: "Couldn't reach the server — change undone." });
+    });
   };
 
   // Pin/unpin a task. Same error-toast + refresh pattern as patchLane.
@@ -2194,11 +2260,18 @@ function App() {
               // Optimistic local reorder so the row jumps immediately; the
               // PATCH call writes through to the server and refreshTasks()
               // pulls the canonical order back.
+              //
+              // Open tasks only: the drop index comes from TodayList's display
+              // order (open first, done beneath) and the server renumbers open
+              // rows only — splicing the done-interleaved, position-ordered
+              // array would land the row one slot off whenever a done task
+              // sits above the drop point.
               setTasks(prev => {
-                const todays = prev.filter(t => t.lane === "today");
-                const others = prev.filter(t => t.lane !== "today");
-                const without = todays.filter(t => t.id !== id);
-                const moving  = todays.find(t => t.id === id);
+                const isOpenToday = (t) => t.lane === "today" && !doneSet.has(t.id);
+                const todaysOpen = prev.filter(isOpenToday);
+                const others = prev.filter(t => !isOpenToday(t));
+                const without = todaysOpen.filter(t => t.id !== id);
+                const moving  = todaysOpen.find(t => t.id === id);
                 if (!moving) return prev;
                 const target  = Math.max(0, Math.min(index, without.length));
                 without.splice(target, 0, moving);

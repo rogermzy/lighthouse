@@ -45,8 +45,12 @@ export function runDecayOnce(): { weekDecayed: number; monthDecayed: number } {
   // Note we deliberately preserve updated_at on the decay UPDATE so the next
   // tier's age clock keeps counting from the original last-touch, not from
   // when we shuffled lanes. Otherwise a task could pinball indefinitely.
-  const week = decayThisWeek.run({ cutoff: ageCutoffIso(7) });
+  //
+  // month→backlog runs FIRST so a row moves at most one tier per tick — the
+  // reverse order would let a 30-day-stale this_week task hop
+  // this_week → this_month → backlog in a single run.
   const month = decayThisMonth.run({ cutoff: ageCutoffIso(30) });
+  const week = decayThisWeek.run({ cutoff: ageCutoffIso(7) });
   return {
     weekDecayed: Number(week.changes),
     monthDecayed: Number(month.changes),

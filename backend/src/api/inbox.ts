@@ -24,7 +24,7 @@ const updateTriage = db.prepare(`
 `);
 
 const selectInboxById = db.prepare(`
-  SELECT id, source, title FROM inbox_items WHERE id = :id
+  SELECT id, source, title, triaged_to FROM inbox_items WHERE id = :id
 `);
 
 const insertTaskFromInbox = db.prepare(`
@@ -81,8 +81,9 @@ const TRIAGE_TO_LANE: Record<string, string> = {
 const TRIAGE_TARGETS = [...Object.keys(TRIAGE_TO_LANE), "drop"];
 
 const TODAY_CAP = 3;
+// Top-level only — breakdown children don't consume Today slots (see tasks.ts).
 const countTodayUndone = db.prepare(
-  "SELECT COUNT(*) as n FROM tasks WHERE lane = 'today' AND done_at IS NULL"
+  "SELECT COUNT(*) as n FROM tasks WHERE lane = 'today' AND done_at IS NULL AND parent_task_id IS NULL"
 );
 
 inboxApi.patch("/:id", async (c) => {
@@ -94,15 +95,21 @@ inboxApi.patch("/:id", async (c) => {
     return c.json({ error: `triaged_to must be one of: ${TRIAGE_TARGETS.join("|")}` }, 400);
   }
 
-  const item = selectInboxById.get({ id }) as InboxRow | undefined;
-  if (!item) return c.json({ error: "not found" }, 404);
-
+  let notFound = false;
+  let alreadyTriaged = false;
   let createdTaskId: string | null = null;
   let fellBackToUpNext = false;
 
   // Cap-check + triage + task-insert all in one IMMEDIATE-mode transaction so
   // concurrent triage→today writes can't both see count=2 and both insert.
+  // The triaged_to re-read lives inside the tx too: a double-tap / network
+  // retry must not create a second task from the same inbox item — the retry
+  // sees triaged_to set and returns ok idempotently.
   runTx(() => {
+    const item = selectInboxById.get({ id }) as (InboxRow & { triaged_to: string | null }) | undefined;
+    if (!item) { notFound = true; return; }
+    if (item.triaged_to !== null) { alreadyTriaged = true; return; }
+
     let lane = TRIAGE_TO_LANE[triagedTo]; // undefined for "drop"
     let pinned = 0;
 
@@ -135,5 +142,9 @@ inboxApi.patch("/:id", async (c) => {
     }
   });
 
+  if (notFound) return c.json({ error: "not found" }, 404);
+  if (alreadyTriaged) {
+    return c.json({ ok: true, createdTaskId: null, fellBackToUpNext: false, alreadyTriaged: true });
+  }
   return c.json({ ok: true, createdTaskId, fellBackToUpNext });
 });

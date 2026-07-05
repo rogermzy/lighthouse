@@ -50,7 +50,10 @@ export const workflowyConnector: Connector = {
     const url = new URL(`${BASE}/nodes`);
     url.searchParams.set("parent_id", parentId);
 
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(30_000),
+    });
     if (!res.ok) throw new Error(`Workflowy ${res.status}: ${await res.text()}`);
 
     // The API shape returns nodes either as a top-level array or under a
@@ -88,6 +91,7 @@ export const workflowyConnector: Connector = {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ completedAt: done ? Date.now() : null }),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) throw new Error(`Workflowy setDone ${res.status}: ${await res.text()}`);
   },

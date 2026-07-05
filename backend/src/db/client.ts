@@ -117,6 +117,16 @@ db.exec(
   "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id) WHERE parent_task_id IS NOT NULL",
 );
 
+// Additive ALTER: user_linked marks enrichment rows whose primary_goal_id was
+// set by the user (milestone commit / manual link) — the enrichment loop
+// preserves the goal link on these rows instead of reclassifying it away.
+const enrichCols = db.prepare("PRAGMA table_info(task_enrichment)").all() as { name: string }[];
+if (!enrichCols.some((c) => c.name === "user_linked")) {
+  db.exec("ALTER TABLE task_enrichment ADD COLUMN user_linked INTEGER NOT NULL DEFAULT 0");
+  // Backfill: rows written by commitTasksForMilestone carry sentinel hashes.
+  db.exec("UPDATE task_enrichment SET user_linked = 1 WHERE hash LIKE 'seeded-%' OR hash LIKE 'linked-%'");
+}
+
 export function nowIso(): string {
   return new Date().toISOString();
 }

@@ -4,11 +4,16 @@ import { googleOAuthClient, isGoogleOAuthConfigured, hasGoogleTokens } from "../
 import { upsertTasksFromSource } from "../sync/reconcile.js";
 
 // Match clickup's relativeDue shape — backend stores a short string the UI
-// renders directly in the "due" pill. ISO strings from Tasks API come through
-// in RFC 3339 (date-time); we collapse to local midnight diff.
+// renders directly in the "due" pill. Google Tasks `due` is date-only,
+// serialized as midnight UTC ("2026-07-02T00:00:00.000Z"). Parsing it as an
+// instant would render a day early in negative-UTC-offset timezones, so pull
+// the Y-M-D out of the string and build a LOCAL date before diffing.
 function relativeDue(iso: string | null | undefined): string | undefined {
   if (!iso) return undefined;
-  const d = new Date(iso);
+  const ymd = iso.slice(0, 10).split("-").map(Number);
+  if (ymd.length !== 3 || ymd.some((n) => Number.isNaN(n))) return undefined;
+  const [y, m, day] = ymd;
+  const d = new Date(y, m - 1, day);
   if (Number.isNaN(d.getTime())) return undefined;
   const now = new Date();
   const days = Math.floor((d.getTime() - now.setHours(0, 0, 0, 0)) / 86_400_000);
@@ -30,31 +35,44 @@ export const gtasksConnector: Connector = {
     const auth = googleOAuthClient();
     const tasks = google.tasks({ version: "v1", auth });
 
-    const listsRes = await tasks.tasklists.list({ maxResults: 100 });
-    const lists = listsRes.data.items ?? [];
+    // Page through every tasklist and every task within each — both endpoints
+    // cap at 100/page. A partial list would make reconcile prune the rest, so
+    // any page fetch failure throws (googleapis rejects) before we reconcile.
+    const lists = [];
+    let listsPageToken: string | undefined;
+    do {
+      const listsRes = await tasks.tasklists.list({ maxResults: 100, pageToken: listsPageToken });
+      for (const l of listsRes.data.items ?? []) lists.push(l);
+      listsPageToken = listsRes.data.nextPageToken ?? undefined;
+    } while (listsPageToken);
 
     const all: UnifiedTask[] = [];
     for (const list of lists) {
       if (!list.id) continue;
-      const res = await tasks.tasks.list({
-        tasklist: list.id,
-        maxResults: 100,
-        showCompleted: false,
-        showHidden: false,
-        showDeleted: false,
-      });
-      for (const t of res.data.items ?? []) {
-        if (!t.id || !t.title) continue;
-        all.push({
-          // List ID prefixed so two tasks with the same id across lists don't
-          // collide (Google Tasks ids are unique within a list, not across).
-          externalId: `${list.id}:${t.id}`,
-          title: t.title,
-          note: t.notes?.trim() || undefined,
-          project: list.title ?? undefined,
-          due: relativeDue(t.due),
+      let pageToken: string | undefined;
+      do {
+        const res = await tasks.tasks.list({
+          tasklist: list.id,
+          maxResults: 100,
+          showCompleted: false,
+          showHidden: false,
+          showDeleted: false,
+          pageToken,
         });
-      }
+        for (const t of res.data.items ?? []) {
+          if (!t.id || !t.title) continue;
+          all.push({
+            // List ID prefixed so two tasks with the same id across lists don't
+            // collide (Google Tasks ids are unique within a list, not across).
+            externalId: `${list.id}:${t.id}`,
+            title: t.title,
+            note: t.notes?.trim() || undefined,
+            project: list.title ?? undefined,
+            due: relativeDue(t.due),
+          });
+        }
+        pageToken = res.data.nextPageToken ?? undefined;
+      } while (pageToken);
     }
 
     upsertTasksFromSource("gtasks", all);

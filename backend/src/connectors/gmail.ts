@@ -20,7 +20,8 @@ export const gmailConnector: Connector = {
     const auth = googleOAuthClient();
     const gmail = google.gmail({ version: "v1", auth });
 
-    const query = `label:${LABEL}`;
+    // Quoted so a label with spaces still parses as one search term.
+    const query = `label:"${LABEL.replace(/"/g, "")}"`;
 
     // Paginate the full set so we don't silently drop messages past 100.
     const ids: string[] = [];
@@ -44,16 +45,22 @@ export const gmailConnector: Connector = {
       return;
     }
 
-    const metas = await Promise.all(
-      ids.map((id) =>
-        gmail.users.messages.get({
-          userId: "me",
-          id,
-          format: "metadata",
-          metadataHeaders: ["Subject", "From"],
-        })
-      )
-    );
+    // Sequential batches of 10 — an unbounded Promise.all over hundreds of
+    // labelled messages trips Gmail's per-user rate limit and fails the sync.
+    const metas = [];
+    for (let i = 0; i < ids.length; i += 10) {
+      const batch = await Promise.all(
+        ids.slice(i, i + 10).map((id) =>
+          gmail.users.messages.get({
+            userId: "me",
+            id,
+            format: "metadata",
+            metadataHeaders: ["Subject", "From"],
+          })
+        )
+      );
+      metas.push(...batch);
+    }
 
     const items: InboxItemWire[] = metas.map((res) => {
       const headers = res.data.payload?.headers ?? [];

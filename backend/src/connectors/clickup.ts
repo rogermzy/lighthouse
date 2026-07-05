@@ -61,15 +61,30 @@ export const clickupConnector: Connector = {
     const teamId = process.env.CLICKUP_TEAM_ID!;
     const userId = process.env.CLICKUP_USER_ID!;
 
-    const url = new URL(`${BASE}/team/${teamId}/task`);
-    url.searchParams.set("include_closed", "false");
-    url.searchParams.append("assignees[]", userId);
+    // /team/{team_id}/task returns max 100 tasks/page. Page through the whole
+    // set (0-based `page`) — a partial list would make reconcile prune every
+    // task past page 0, so on any page fetch failure we THROW and pull nothing.
+    const raw: ClickUpTask[] = [];
+    for (let page = 0; ; page++) {
+      const url = new URL(`${BASE}/team/${teamId}/task`);
+      url.searchParams.set("include_closed", "false");
+      url.searchParams.append("assignees[]", userId);
+      url.searchParams.set("page", String(page));
 
-    const res = await fetch(url, { headers: { Authorization: token } });
-    if (!res.ok) throw new Error(`ClickUp ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { tasks?: ClickUpTask[] };
+      const res = await fetch(url, {
+        headers: { Authorization: token },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) throw new Error(`ClickUp ${res.status}: ${await res.text()}`);
+      const data = (await res.json()) as { tasks?: ClickUpTask[]; last_page?: boolean };
+      const pageTasks = data.tasks ?? [];
+      raw.push(...pageTasks);
+      // ClickUp flags the final page with last_page. If that flag is ever
+      // absent, fall back to stopping on a short (<100) page.
+      if (data.last_page === true || pageTasks.length < 100) break;
+    }
 
-    const tasks: UnifiedTask[] = (data.tasks ?? []).map((t) => ({
+    const tasks: UnifiedTask[] = raw.map((t) => ({
       externalId: t.id,
       title: t.name,
       note: t.description?.trim() || undefined,
@@ -96,6 +111,7 @@ export const clickupConnector: Connector = {
     try {
       const taskRes = await fetch(`${BASE}/task/${encodeURIComponent(externalId)}`, {
         headers: { Authorization: token },
+        signal: AbortSignal.timeout(30_000),
       });
       if (!taskRes.ok) throw new Error(`task ${taskRes.status}`);
       const task = (await taskRes.json()) as { list?: { id?: string } };
@@ -110,6 +126,7 @@ export const clickupConnector: Connector = {
         method: "PUT",
         headers: { Authorization: token, "Content-Type": "application/json" },
         body: JSON.stringify({ status: target }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`ClickUp setDone ${res.status}: ${await res.text()}`);
     } catch (err) {
@@ -119,6 +136,7 @@ export const clickupConnector: Connector = {
         method: "PUT",
         headers: { Authorization: token, "Content-Type": "application/json" },
         body: JSON.stringify({ archived: done }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`ClickUp archive fallback ${res.status}: ${await res.text()}`);
     }
@@ -137,7 +155,10 @@ async function fetchListStatuses(
   const cached = listStatusCache.get(listId);
   if (cached) return cached;
 
-  const res = await fetch(`${BASE}/list/${listId}`, { headers: { Authorization: token } });
+  const res = await fetch(`${BASE}/list/${listId}`, {
+    headers: { Authorization: token },
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!res.ok) throw new Error(`list ${listId}: ${res.status}`);
   const data = (await res.json()) as {
     statuses?: Array<{ status: string; type: string }>;

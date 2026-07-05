@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { google, calendar_v3 } from "googleapis";
 import type { Connector, CalendarEventWire } from "./types.js";
 import { googleOAuthClient, isGoogleOAuthConfigured, hasGoogleTokens } from "../auth/oauth.js";
 import { replaceTodayCalendarEvents } from "../sync/reconcile.js";
@@ -58,26 +58,41 @@ export const gcalConnector: Connector = {
     const auth = googleOAuthClient();
     const cal = google.calendar({ version: "v3", auth });
     const { start, end } = calendarWindow();
-    const res = await cal.events.list({
-      calendarId: "primary",
-      timeMin: start.toISOString(),
-      timeMax: end.toISOString(),
-      singleEvents: true,
-      orderBy: "startTime",
-      maxResults: 250,
-    });
 
-    const events: CalendarEventWire[] = (res.data.items ?? [])
+    // events.list caps at 250/page — page through the window so a busy 4-day
+    // stretch doesn't silently drop events past the first page.
+    const items: calendar_v3.Schema$Event[] = [];
+    let pageToken: string | undefined;
+    do {
+      const res = await cal.events.list({
+        calendarId: "primary",
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: 250,
+        pageToken,
+      });
+      for (const e of res.data.items ?? []) items.push(e);
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken);
+
+    const events: CalendarEventWire[] = items
       .filter((e) => e.start?.dateTime && e.end?.dateTime) // skip all-day events for now
       .map((e) => {
         const kind = kindOf(e);
         const startIso = e.start!.dateTime!;
+        const endIso = e.end!.dateTime!;
+        // An event whose end is on a later local date crosses midnight; its
+        // naive minutes-past-midnight would be < startMin and render inverted.
+        // Clamp to end-of-day so it fills to the bottom of its day column.
+        const crossesMidnight = isoToLocalDateStr(endIso) > isoToLocalDateStr(startIso);
         return {
           externalId: e.id ?? `${startIso}-${e.summary ?? "untitled"}`,
           date: isoToLocalDateStr(startIso),
           title: e.summary ?? "(no title)",
           startMin: isoToMinutesPastMidnight(startIso),
-          endMin: isoToMinutesPastMidnight(e.end!.dateTime!),
+          endMin: crossesMidnight ? 24 * 60 : isoToMinutesPastMidnight(endIso),
           kind,
           color: colorFor(kind),
         };

@@ -40,6 +40,11 @@ const markSyncError = db.prepare(`
 // keeps a local completion and won't let a source "reopen" resurrect a task
 // the user already checked off. :done_at is the source's completion time
 // (ISO) or NULL when the source still considers the task open.
+//
+// updated_at only bumps when a source-owned field actually changed. An
+// unconditional bump would mark every synced task "touched" each 5-min tick,
+// making lane decay (which keys off updated_at) a permanent no-op for synced
+// sources. Unqualified columns are the pre-update row; IS NOT is null-safe.
 const upsertTaskFromSource = db.prepare(`
   INSERT INTO tasks
     (id, source, external_id, title, note, project, tag, estimate_min, due, url, lane, big_rock, position, done_at, created_at, updated_at)
@@ -55,7 +60,17 @@ const upsertTaskFromSource = db.prepare(`
     due          = excluded.due,
     url          = excluded.url,
     done_at      = COALESCE(done_at, excluded.done_at),
-    updated_at   = excluded.updated_at
+    updated_at   = CASE
+      WHEN title IS NOT excluded.title
+        OR note IS NOT excluded.note
+        OR project IS NOT excluded.project
+        OR estimate_min IS NOT excluded.estimate_min
+        OR due IS NOT excluded.due
+        OR url IS NOT excluded.url
+        OR done_at IS NOT COALESCE(done_at, excluded.done_at)
+      THEN excluded.updated_at
+      ELSE updated_at
+    END
 `);
 
 export function replaceTodayCalendarEvents(events: CalendarEventWire[]): void {
@@ -122,9 +137,28 @@ const deleteStaleTask = db.prepare(`
   DELETE FROM tasks WHERE source = :source AND external_id = :external_id AND done_at IS NULL
 `);
 
+const countOpenForSource = db.prepare(`
+  SELECT COUNT(*) AS n FROM tasks
+  WHERE source = :source AND done_at IS NULL AND external_id IS NOT NULL
+`);
+
 export function upsertTasksFromSource(source: string, tasks: UnifiedTask[]): void {
   const now = nowIso();
   const seen = new Set(tasks.map((t) => t.externalId));
+
+  // Empty-pull guard: a 200 with an unexpectedly empty/shape-shifted body
+  // must not prune every open task for the source (that would irreversibly
+  // destroy Roger-owned lane/position/tag state). Throwing records the
+  // anomaly in sync_state.last_error; a genuinely emptied source can be
+  // reconciled manually.
+  if (tasks.length === 0) {
+    const { n } = countOpenForSource.get({ source }) as { n: number };
+    if (n > 0) {
+      throw new Error(`empty pull with ${n} open local task(s) — refusing to prune`);
+    }
+    return;
+  }
+
   runTx(() => {
     for (const t of tasks) {
       upsertTaskFromSource.run({
@@ -149,6 +183,14 @@ export function upsertTasksFromSource(source: string, tasks: UnifiedTask[]): voi
         deleteStaleTask.run({ source, external_id: row.external_id });
       }
     }
+    // Pruning a synced parent can orphan local breakdown children (no FK on
+    // parent_task_id). Detach them so they render as normal top-level tasks
+    // instead of silently pointing at a row that no longer exists.
+    db.prepare(`
+      UPDATE tasks SET parent_task_id = NULL
+      WHERE parent_task_id IS NOT NULL
+        AND parent_task_id NOT IN (SELECT id FROM tasks)
+    `).run();
   });
 }
 

@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { SQLInputValue } from "node:sqlite";
-import { db } from "../db/client.js";
+import Anthropic from "@anthropic-ai/sdk";
+import { db, runTx } from "../db/client.js";
 import { runBreakdownAgent, isBreakdownConfigured } from "../agent/breakdown.js";
 import {
   runTaskBreakdownAgent,
@@ -199,13 +201,34 @@ goalsApi.post("/annual/:id/breakdown", async (c) => {
       : undefined;
 
   try {
-    const result = await runBreakdownAgent(id, refinement);
+    const result = await runBreakdownAgent(id, refinement, c.req.raw.signal);
     return c.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return c.json({ error: "breakdown failed", detail: message }, 502);
+    return breakdownErrorResponse(c, err);
   }
 });
+
+// Shared typed-error branches for the two goal-breakdown agent routes.
+// Mirrors plan-day.ts / tasks.ts: the abort subclass MUST be checked before
+// the generic APIError or client cancellations get misreported as 502s.
+function breakdownErrorResponse(c: Context, err: unknown) {
+  if (err instanceof Anthropic.APIUserAbortError) {
+    return new Response(JSON.stringify({ error: "aborted" }), {
+      status: 499,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (err instanceof Anthropic.RateLimitError) {
+    return c.json({ error: "rate limited", detail: err.message }, 429);
+  }
+  if (err instanceof Anthropic.APIError) {
+    return c.json({ error: "anthropic api error", detail: err.message }, 502);
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes("not found")) return c.json({ error: message }, 404);
+  if (message.includes("ANTHROPIC_API_KEY")) return c.json({ error: message }, 503);
+  return c.json({ error: "breakdown failed", detail: message }, 500);
+}
 
 // Run the task-breakdown agent for a single monthly milestone. Returns
 // 3-7 proposed tasks the user can review + commit (separate endpoint).
@@ -215,10 +238,10 @@ goalsApi.post("/monthly/:id/break-into-tasks", async (c) => {
   }
   const id = c.req.param("id");
   try {
-    const result = await runTaskBreakdownAgent(id);
+    const result = await runTaskBreakdownAgent(id, c.req.raw.signal);
     return c.json(result);
   } catch (err) {
-    return c.json({ error: "task-breakdown failed", detail: err instanceof Error ? err.message : String(err) }, 502);
+    return breakdownErrorResponse(c, err);
   }
 });
 
@@ -259,13 +282,20 @@ goalsApi.delete("/:horizon/:id", (c) => {
     // re-assigned in a follow-up edit. (Monthly goals don't have a FK on
     // their parent column, so they only become dangling-string orphans —
     // the GoalsPage render handles that gracefully.)
-    if (horizon === "annual") {
-      db.prepare("UPDATE goals_quarterly SET parent = NULL WHERE parent = :id").run({ id });
-    }
-    const result = db.prepare(`DELETE FROM ${TABLE[horizon]} WHERE id = :id`).run({ id });
-    if (result.changes === 0) return c.json({ error: "not found" }, 404);
+    // One transaction: a missing id must not leave children unparented by a
+    // DELETE that then matched nothing.
+    runTx(() => {
+      if (horizon === "annual") {
+        db.prepare("UPDATE goals_quarterly SET parent = NULL WHERE parent = :id").run({ id });
+      }
+      const result = db.prepare(`DELETE FROM ${TABLE[horizon]} WHERE id = :id`).run({ id });
+      if (result.changes === 0) throw new Error("__not_found__");
+    });
     return c.json({ ok: true });
   } catch (err) {
+    if (err instanceof Error && err.message === "__not_found__") {
+      return c.json({ error: "not found" }, 404);
+    }
     return c.json({ error: "delete failed", detail: String(err) }, 500);
   }
 });

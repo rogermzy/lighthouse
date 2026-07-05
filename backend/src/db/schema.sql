@@ -184,6 +184,10 @@ CREATE TABLE IF NOT EXISTS task_enrichment (
   weight           REAL NOT NULL DEFAULT 0.5,
   reasoning        TEXT,
   hash             TEXT NOT NULL,
-  enriched_at      TEXT NOT NULL
+  enriched_at      TEXT NOT NULL,
+  -- 1 when the goal link was set by the user (milestone commit / manual link).
+  -- The enrichment loop must never overwrite primary_goal_id on these rows —
+  -- a human decision outranks the classifier.
+  user_linked      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_enrichment_theme ON task_enrichment(theme);

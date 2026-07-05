@@ -139,7 +139,18 @@ export async function runAgentLoop(opts: {
           "Every pick was filtered out — likely all already in active focus.",
         );
       }
-      return enrichSuggestions(finalRaw);
+      const enriched = enrichSuggestions(finalRaw);
+      // enrichSuggestions drops picks whose goal_id doesn't resolve to a
+      // monthly goal with an intact annual chain — a second silent-blank
+      // hazard the guard above can't see. Surface it the same way instead
+      // of returning a 200 with an empty modal.
+      if (enriched.length === 0) {
+        throw new AgentLoopError(
+          "all_filtered",
+          "No pick resolved to a monthly goal with an intact goal ladder.",
+        );
+      }
+      return enriched;
     }
 
     const toolResults: Anthropic.ToolResultBlockParam[] = toolUses.map((tu) => ({

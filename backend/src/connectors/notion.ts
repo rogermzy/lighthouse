@@ -68,6 +68,7 @@ export const notionConnector: Connector = {
           page_size: 100,
           ...(cursor ? { start_cursor: cursor } : {}),
         }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`Notion ${res.status}: ${await res.text()}`);
       const data = (await res.json()) as {
@@ -109,6 +110,7 @@ export const notionConnector: Connector = {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ archived: done }),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) throw new Error(`Notion setDone ${res.status}: ${await res.text()}`);
   },

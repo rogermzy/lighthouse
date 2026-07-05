@@ -40,8 +40,11 @@ function startOfTodayIso(): string {
 }
 
 const TODAY_CAP = 3;
+// The cap counts only top-level tasks: breakdown children ride along with
+// their parent (they're details of one commitment, not separate ones), so
+// they neither consume Today slots nor block promotions.
 const countTodayUndone = db.prepare(
-  "SELECT COUNT(*) as n FROM tasks WHERE lane = 'today' AND done_at IS NULL"
+  "SELECT COUNT(*) as n FROM tasks WHERE lane = 'today' AND done_at IS NULL AND parent_task_id IS NULL"
 );
 const selectCurrentLane = db.prepare("SELECT lane, done_at, position, parent_task_id FROM tasks WHERE id = :id");
 
@@ -124,7 +127,8 @@ const insertCompletion = db.prepare(`
 `);
 
 // Breakdown: children are local ('self') tasks carrying parent_task_id, landing
-// at the end of the parent's lane.
+// at the end of their lane (the parent's, except now-parents → today; see the
+// commit endpoint).
 const insertChildTask = db.prepare(`
   INSERT INTO tasks
     (id, source, external_id, title, note, project, tag, estimate_min, due, lane,
@@ -232,6 +236,7 @@ tasksApi.patch("/:id", async (c) => {
   let notFound = false;
   let capFull: number | null = null;
   let nowGateError: string | null = null;
+  let reopenFellBack = false;
   let shouldLogCompletion = false;
   // Captures the done-state transition (true=just-done, false=just-reopened,
   // null=no change). Fires source write-back AFTER the tx commits.
@@ -255,6 +260,26 @@ tasksApi.patch("/:id", async (c) => {
       params.done_at = nowIso();
     } else if (body.done === false) {
       setters.push("done_at = NULL");
+      // Reopening must always work (it's an undo), but it can't silently
+      // blow the Today cap when the freed slot was refilled in the meantime.
+      // Same graceful overflow as inbox triage: re-queue to Up next
+      // (this_week + pinned) instead of failing or overstuffing Today.
+      if (
+        prior.done_at !== null &&
+        prior.lane === "today" &&
+        prior.parent_task_id === null &&
+        typeof body.lane !== "string"
+      ) {
+        const { n } = countTodayUndone.get() as { n: number };
+        if (n >= TODAY_CAP) {
+          setters.push(
+            "lane = 'this_week'",
+            "pinned = 1",
+            "position = (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE lane = 'this_week' AND done_at IS NULL)"
+          );
+          reopenFellBack = true;
+        }
+      }
     }
     if (typeof body.lane === "string") {
       newLane = body.lane;
@@ -333,6 +358,10 @@ tasksApi.patch("/:id", async (c) => {
     if (explicitIndex !== null) {
       renumberLane(targetLane, id, explicitIndex);
     }
+    if (reopenFellBack) {
+      renumberLane("today");
+      renumberLane("this_week");
+    }
 
     if (body.done === true && prior.done_at === null) {
       const row = selectTaskForLog.get({ id }) as
@@ -352,9 +381,9 @@ tasksApi.patch("/:id", async (c) => {
       // Auto-advance Now: finishing the focus task should immediately tee
       // up the next Today task — that's the rhythm of a focus session. The
       // just-done task moves back to Today's lane (where it shows as a done
-      // row until midnight, then falls off), and the highest-position open
-      // Today task becomes the new Now. If Today is empty, Now stays empty
-      // and the FocusCard renders its empty state.
+      // row until midnight, then falls off), and the top-of-list open Today
+      // task (lowest position) becomes the new Now. If Today is empty, Now
+      // stays empty and the FocusCard renders its empty state.
       //
       // Position note: we explicitly push the done-task to MAX(position)+1
       // in the target lane so it sinks below the open rows — otherwise it
@@ -423,7 +452,9 @@ tasksApi.patch("/:id", async (c) => {
   // for error handling.
   if (doneTransition !== null) pushDoneToSource(id, doneTransition);
 
-  return c.json({ ok: true });
+  // demotedTo tells the client the reopened task was re-queued to Up next
+  // because Today had refilled — worth a toast, not an error.
+  return c.json(reopenFellBack ? { ok: true, demotedTo: "this_week" } : { ok: true });
 });
 
 // Propose a breakdown of one task into small subtasks. Writes NOTHING — the
@@ -480,6 +511,12 @@ tasksApi.post("/:id/breakdown/commit", async (c) => {
   // a leaf deeper than that.
   if (taskDepth(id) >= MAX_BREAKDOWN_DEPTH) return c.json({ error: "too_deep" }, 422);
 
+  // Children of a Now parent land in Today, not Now — Now stays a true
+  // singleton (the FocusCard renders exactly one task). Everywhere else they
+  // inherit the parent's lane and group under it. They never count against
+  // the Today cap (countTodayUndone filters parent_task_id IS NULL).
+  const childLane = parent.lane === "now" ? "today" : parent.lane;
+
   const clean = items
     .filter((x: Record<string, unknown>) => x && typeof x.title === "string" && (x.title as string).trim())
     .slice(0, 8)
@@ -504,7 +541,7 @@ tasksApi.post("/:id/breakdown/commit", async (c) => {
         note: s.note,
         tag: s.tag,
         estimate_min: s.estimate_min,
-        lane: parent.lane,
+        lane: childLane,
         parent_task_id: id,
         now,
       });

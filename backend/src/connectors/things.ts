@@ -45,7 +45,7 @@ async function thingsInstalled(): Promise<boolean> {
     const { stdout } = await execFileAsync("osascript", [
       "-e",
       'application "Things3" exists',
-    ]);
+    ], { timeout: 15_000 });
     return stdout.trim() === "true";
   } catch {
     return false;
@@ -61,8 +61,14 @@ export const thingsConnector: Connector = {
   },
 
   async sync() {
+    // timeout: osascript blocks indefinitely on a pending macOS Automation
+    // prompt (or a hung Things). The sync runner only reschedules after this
+    // resolves, so without a timeout one stuck prompt silently wedges the
+    // whole connector until restart. The timeout kill surfaces as a thrown
+    // error → recorded in sync_state.last_error.
     const { stdout } = await execFileAsync("osascript", ["-e", SCRIPT], {
       maxBuffer: 5 * 1024 * 1024,
+      timeout: 30_000,
     });
 
     const records = stdout.split(RECORD_DELIM).map((r) => r.trim()).filter(Boolean);
@@ -94,6 +100,6 @@ export const thingsConnector: Connector = {
     }
     const status = done ? "completed" : "open";
     const script = `tell application "Things3" to set status of to do id "${externalId}" to ${status}`;
-    await execFileAsync("osascript", ["-e", script]);
+    await execFileAsync("osascript", ["-e", script], { timeout: 30_000 });
   },
 };

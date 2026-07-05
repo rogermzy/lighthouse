@@ -230,6 +230,7 @@ function inferMonth(title: string): MonthLabel | null {
 export async function runBreakdownAgent(
   annualId: string,
   refinement?: string,
+  signal?: AbortSignal,
 ): Promise<BreakdownResult> {
   if (!isBreakdownConfigured()) {
     throw new Error("ANTHROPIC_API_KEY not set");
@@ -360,7 +361,7 @@ export async function runBreakdownAgent(
     tools: [BREAKDOWN_TOOL],
     tool_choice: { type: "tool", name: "return_breakdown" },
     messages: [{ role: "user", content: userMessage }],
-  });
+  }, { signal });
 
   const toolUse = response.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "return_breakdown",
@@ -399,13 +400,14 @@ export async function runBreakdownAgent(
       return {
         quarter: p.quarter,
         status: quarterStatus(p.quarter, currentQuarter),
-        title: p.title,
-        target: p.target,
-        reasoning: p.reasoning,
+        title: String(p.title ?? "").trim(),
+        target: String(p.target ?? "").trim(),
+        reasoning: String(p.reasoning ?? "").trim(),
         alreadyExists: Boolean(existing),
         existingTitle: existing?.title,
       };
-    });
+    })
+    .filter((p) => p.title.length > 0);
 
   // Filter monthly to only the current quarter, then mark alreadyExists.
   const inQuarter = new Set(MONTHS_IN_QUARTER[currentQuarter]);
@@ -420,13 +422,14 @@ export async function runBreakdownAgent(
       return {
         month: p.month,
         status: monthStatus(p.month, currentMonth),
-        title: p.title,
-        target: p.target,
-        reasoning: p.reasoning,
+        title: String(p.title ?? "").trim(),
+        target: String(p.target ?? "").trim(),
+        reasoning: String(p.reasoning ?? "").trim(),
         alreadyExists: Boolean(existing),
         existingTitle: existing?.title,
       };
-    });
+    })
+    .filter((p) => p.title.length > 0);
 
   return {
     annual: { id: annual.id, title: annual.title },

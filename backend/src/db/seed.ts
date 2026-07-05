@@ -185,9 +185,11 @@ export function seedIfEmpty(): void {
     INSERT OR IGNORE INTO inbox_items (id, source, external_id, title, triaged_to, created_at)
     VALUES (:id, :source, :external_id, :title, NULL, :created_at)
   `);
+  // `date` must be set: calendar.ts filters WHERE date >= :start, so events
+  // seeded with the column's '' default would be invisible on a fresh install.
   const insertEvent = db.prepare(`
-    INSERT OR IGNORE INTO calendar_events (id, title, start_min, end_min, kind, color)
-    VALUES (:id, :title, :start_min, :end_min, :kind, :color)
+    INSERT OR IGNORE INTO calendar_events (id, date, title, start_min, end_min, kind, color)
+    VALUES (:id, :date, :title, :start_min, :end_min, :kind, :color)
   `);
   const insertMeta = db.prepare(`
     INSERT OR REPLACE INTO calendar_meta (id, account, synced_min_ago, day_start_min, day_end_min)
@@ -217,7 +219,9 @@ export function seedIfEmpty(): void {
     for (const it of INBOX_SEED) {
       insertInbox.run({ ...it, external_id: null, created_at: now });
     }
-    for (const ev of CALENDAR_EVENTS_SEED) insertEvent.run(ev);
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    for (const ev of CALENDAR_EVENTS_SEED) insertEvent.run({ ...ev, date: todayStr });
     insertMeta.run({
       account: "jordan@reyes.studio",
       synced_min_ago: 2,

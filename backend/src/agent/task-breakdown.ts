@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { db } from "../db/client.js";
+import { db, runTx } from "../db/client.js";
 import { getProfileContext } from "../api/profile.js";
 import { MODEL, isAgentConfigured } from "./config.js";
 
@@ -206,7 +206,7 @@ function daysRemainingInMonth(now: Date): number {
   return Math.max(0, Math.ceil((endOfMonth.getTime() - now.getTime()) / 86_400_000));
 }
 
-export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBreakdownResult> {
+export async function runTaskBreakdownAgent(monthlyId: string, signal?: AbortSignal): Promise<TaskBreakdownResult> {
   if (!isTaskBreakdownConfigured()) throw new Error("ANTHROPIC_API_KEY not set");
 
   const monthly = pickMonthly(monthlyId);
@@ -272,7 +272,7 @@ export async function runTaskBreakdownAgent(monthlyId: string): Promise<TaskBrea
     tools: [TASK_BREAKDOWN_TOOL],
     tool_choice: { type: "tool", name: "return_tasks" },
     messages: [{ role: "user", content: userMessage }],
-  });
+  }, { signal });
 
   const toolUse = response.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "return_tasks",
@@ -343,16 +343,19 @@ const insertTask = db.prepare(`
      NULL, :now, :now)
 `);
 
+// user_linked = 1: both commit paths are explicit user decisions, so the
+// enrichment loop must preserve primary_goal_id on these rows (see enrich.ts).
 const upsertEnrichment = db.prepare(`
-  INSERT INTO task_enrichment (task_id, theme, primary_goal_id, weight, reasoning, hash, enriched_at)
-  VALUES (:task_id, :theme, :primary_goal_id, :weight, :reasoning, :hash, :enriched_at)
+  INSERT INTO task_enrichment (task_id, theme, primary_goal_id, weight, reasoning, hash, enriched_at, user_linked)
+  VALUES (:task_id, :theme, :primary_goal_id, :weight, :reasoning, :hash, :enriched_at, 1)
   ON CONFLICT(task_id) DO UPDATE SET
     theme           = excluded.theme,
     primary_goal_id = excluded.primary_goal_id,
     weight          = excluded.weight,
     reasoning       = excluded.reasoning,
     hash            = excluded.hash,
-    enriched_at     = excluded.enriched_at
+    enriched_at     = excluded.enriched_at,
+    user_linked     = 1
 `);
 
 export type TaskToCommit = {
@@ -364,61 +367,92 @@ const selectExistingEnrichment = db.prepare(
   "SELECT theme, weight, reasoning FROM task_enrichment WHERE task_id = :task_id"
 );
 
+const selectTaskExists = db.prepare("SELECT 1 AS x FROM tasks WHERE id = :id");
+
 export function commitTasksForMilestone(
   monthlyId: string,
   monthlyTitle: string,
   picks: TaskToCommit[],
   linkExistingIds: string[] = [],
-): { created: string[]; linked: string[] } {
+): { created: string[]; linked: string[]; skippedLinks: string[] } {
   const now = new Date().toISOString();
+
+  // Re-validate server-side — the proposal round-trips through an editable
+  // client, so field shapes/values can't be trusted (same rule as the
+  // breakdown/commit endpoint in api/tasks.ts).
+  const clean = picks
+    .filter((t) => t && typeof t.title === "string" && t.title.trim())
+    .map((t) => ({
+      title: String(t.title).trim().slice(0, 500),
+      note: typeof t.note === "string" && t.note ? t.note.slice(0, 2000) : null,
+      tag: (VALID_TAGS as readonly string[]).includes(t.tag) ? t.tag : "shallow",
+      estimate_min: Number.isFinite(t.estimateMin)
+        ? Math.max(5, Math.min(120, Math.round(t.estimateMin)))
+        : 25,
+      due: (VALID_DUES as readonly (string | null)[]).includes(t.due) ? t.due : null,
+      reasoning: typeof t.reasoning === "string" ? t.reasoning : "",
+    }));
+
   const created: string[] = [];
-  for (const t of picks) {
-    const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    insertTask.run({
-      id,
-      title: t.title.slice(0, 500),
-      note: t.note ? t.note.slice(0, 2000) : null,
-      tag: t.tag,
-      estimate_min: t.estimateMin,
-      due: t.due,
-      lane: "this_week",
-      now,
-    });
-    // Pre-populate enrichment so the task shows up in This week ranked
-    // correctly from the moment it's created — no need to wait for the
-    // 5-min enrichment loop to catch up. Theme = monthly title keeps the
-    // milestone-grouped view coherent.
-    upsertEnrichment.run({
-      task_id: id,
-      theme: monthlyTitle,
-      primary_goal_id: monthlyId,
-      weight: 0.75,             // user-committed, ladders to a goal — high confidence
-      reasoning: t.reasoning || `From milestone: ${monthlyTitle}`,
-      hash: `seeded-${id}`,     // marks as "manually seeded" so re-enrichment will recompute
-      enriched_at: now,
-    });
-    created.push(id);
-  }
-
-  // Link existing tasks to this milestone by writing primary_goal_id to
-  // their enrichment record (creating one if missing). Preserves theme +
-  // weight from any prior enrichment so we don't blow away the agent's
-  // earlier classification — only the goal-link is updated.
   const linked: string[] = [];
-  for (const taskId of linkExistingIds) {
-    const prior = selectExistingEnrichment.get({ task_id: taskId }) as
-      | { theme: string | null; weight: number | null; reasoning: string | null } | undefined;
-    upsertEnrichment.run({
-      task_id: taskId,
-      theme: prior?.theme || monthlyTitle,
-      primary_goal_id: monthlyId,
-      weight: prior?.weight ?? 0.6,  // keep prior signal; fallback to mid weight
-      reasoning: prior?.reasoning || `Linked to milestone: ${monthlyTitle}`,
-      hash: `linked-${taskId}-${monthlyId}`,
-      enriched_at: now,
-    });
-    linked.push(taskId);
-  }
+  const skippedLinks: string[] = [];
 
-  return { created, linked };
+  // One transaction: a failure mid-loop (e.g. an FK violation) must not leave
+  // half the picks committed behind a 500.
+  runTx(() => {
+    for (const t of clean) {
+      const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      insertTask.run({
+        id,
+        title: t.title,
+        note: t.note,
+        tag: t.tag,
+        estimate_min: t.estimate_min,
+        due: t.due,
+        lane: "this_week",
+        now,
+      });
+      // Pre-populate enrichment so the task shows up in This week ranked
+      // correctly from the moment it's created — no need to wait for the
+      // 5-min enrichment loop to catch up. Theme = monthly title keeps the
+      // milestone-grouped view coherent.
+      upsertEnrichment.run({
+        task_id: id,
+        theme: monthlyTitle,
+        primary_goal_id: monthlyId,
+        weight: 0.75,             // user-committed, ladders to a goal — high confidence
+        reasoning: t.reasoning || `From milestone: ${monthlyTitle}`,
+        hash: `seeded-${id}`,     // re-enrichment recomputes theme/weight; user_linked keeps the goal
+        enriched_at: now,
+      });
+      created.push(id);
+    }
+
+    // Link existing tasks to this milestone by writing primary_goal_id to
+    // their enrichment record (creating one if missing). Preserves theme +
+    // weight from any prior enrichment so we don't blow away the agent's
+    // earlier classification — only the goal-link is updated. Ids that don't
+    // resolve to a real task (stale proposal, hallucination that survived
+    // client review) are skipped, not fatal — enrichment has an FK on tasks.
+    for (const taskId of linkExistingIds) {
+      if (!selectTaskExists.get({ id: taskId })) {
+        skippedLinks.push(taskId);
+        continue;
+      }
+      const prior = selectExistingEnrichment.get({ task_id: taskId }) as
+        | { theme: string | null; weight: number | null; reasoning: string | null } | undefined;
+      upsertEnrichment.run({
+        task_id: taskId,
+        theme: prior?.theme || monthlyTitle,
+        primary_goal_id: monthlyId,
+        weight: prior?.weight ?? 0.6,  // keep prior signal; fallback to mid weight
+        reasoning: prior?.reasoning || `Linked to milestone: ${monthlyTitle}`,
+        hash: `linked-${taskId}-${monthlyId}`,
+        enriched_at: now,
+      });
+      linked.push(taskId);
+    }
+  });
+
+  return { created, linked, skippedLinks };
 }

@@ -225,10 +225,14 @@ function getSuggestions() {
   const ranked = [...GOALS.monthly]
     .map(g => ({ ...g, deficit: expected - g.progress }))
     .sort((a, b) => b.deficit - a.deficit);
-  return ranked.slice(0, 3).map(g => {
+  return ranked.slice(0, 3).flatMap(g => {
     const parent  = GOALS.quarterly.find(q => q.id === g.parent) || GOALS.annual.find(a => a.id === g.parent);
     const annual  = GOALS.annual.find(a => a.id === (parent?.parent || parent?.id));
-    return {
+    // A dangling parent chain (deleted quarterly/annual) leaves annual
+    // undefined — drop the suggestion instead of handing the modal a row
+    // that can't render its goal ladder.
+    if (!annual) return [];
+    return [{
       goal: g,
       quarter: parent && parent.id.startsWith("q") ? parent : null,
       annual,
@@ -238,7 +242,7 @@ function getSuggestions() {
         : g.deficit > 0.05
         ? "Slightly off pace. Small momentum unlock."
         : "On pace. Keep the streak.",
-    };
+    }];
   });
 }
 

@@ -53,7 +53,9 @@ function goalsSignature(goals: Goal[]): string {
 }
 
 function taskHash(t: TaskForEnrichment, goalsSig: string): string {
-  const key = `${t.title}|${t.project ?? ""}|${t.note ?? ""}|${goalsSig}`;
+  // `due` is part of the classification prompt, so a due-date change must
+  // invalidate the cache like any other input change.
+  const key = `${t.title}|${t.project ?? ""}|${t.note ?? ""}|${t.due ?? ""}|${goalsSig}`;
   return createHash("sha1").update(key).digest("hex").slice(0, 16);
 }
 
@@ -88,14 +90,18 @@ function loadStaleTasks(goalsSig: string): TaskForEnrichment[] {
   });
 }
 
+// user_linked rows keep their goal link: the user explicitly tied the task to
+// a milestone (commitTasksForMilestone), and a human decision outranks the
+// classifier — which is prompted to default toward null. Theme/weight still
+// refresh, and the hash update stops the row from re-reading as stale forever.
 const upsertEnrichment = db.prepare(`
   INSERT INTO task_enrichment (task_id, theme, primary_goal_id, weight, reasoning, hash, enriched_at)
   VALUES (:task_id, :theme, :primary_goal_id, :weight, :reasoning, :hash, :enriched_at)
   ON CONFLICT(task_id) DO UPDATE SET
     theme = excluded.theme,
-    primary_goal_id = excluded.primary_goal_id,
+    primary_goal_id = CASE WHEN user_linked = 1 THEN primary_goal_id ELSE excluded.primary_goal_id END,
     weight = excluded.weight,
-    reasoning = excluded.reasoning,
+    reasoning = CASE WHEN user_linked = 1 THEN reasoning ELSE excluded.reasoning END,
     hash = excluded.hash,
     enriched_at = excluded.enriched_at
 `);
@@ -183,7 +189,12 @@ let runningPromise: Promise<{ enriched: number; skipped: number }> | null = null
  */
 export async function runEnrichment(force = false): Promise<{ enriched: number; skipped: number }> {
   if (!isEnrichmentConfigured()) return { enriched: 0, skipped: 0 };
-  if (runningPromise) return runningPromise;
+  // A forced re-rank must not coalesce into an in-flight normal run (which
+  // would skip the hash bypass and silently no-op) — queue it behind instead.
+  if (runningPromise) {
+    if (!force) return runningPromise;
+    return runningPromise.then(() => runEnrichment(true));
+  }
 
   runningPromise = (async () => {
     try {
@@ -212,7 +223,10 @@ export async function runEnrichment(force = false): Promise<{ enriched: number; 
           const r = byId.get(task.id);
           if (!r) continue; // model skipped this one; will retry next tick
           const goalId = r.primary_goal_id && validGoalIds.has(r.primary_goal_id) ? r.primary_goal_id : null;
-          const weight = Math.max(0, Math.min(1, r.weight));
+          // The schema is a hint, not a contract: a non-numeric weight would
+          // become NaN → NULL, violating NOT NULL and aborting the whole batch
+          // on every tick. Default mid-low instead.
+          const weight = Number.isFinite(r.weight) ? Math.max(0, Math.min(1, r.weight)) : 0.3;
           upsertEnrichment.run({
             task_id: task.id,
             theme: r.theme || "Misc",

@@ -8,7 +8,8 @@ type EntryRow = { id: string; mood: string; note: string; created_at: string; so
 // Ordered loosely by valence: settled → activated-positive → activated-negative
 // → depleted. Default mood on new entries is "calm" (first slot) — softer
 // landing than picking "focused" upfront.
-const MOODS = [
+// Exported so /api/v1 validates against the same palette (no drift).
+export const MOODS = [
   { id: "calm",         label: "calm",         color: "#4e6a55" },
   { id: "focused",      label: "focused",      color: "#5e6ad2" },
   { id: "content",      label: "content",      color: "#4a857a" },
@@ -23,7 +24,7 @@ const MOODS = [
   { id: "drained",      label: "drained",      color: "#806b5b" },
   { id: "low",          label: "low",          color: "#b86b8e" },
 ] as const;
-const VALID_MOODS = new Set(MOODS.map((m) => m.id));
+export const VALID_MOODS: Set<string> = new Set(MOODS.map((m) => m.id));
 
 const NOTE_MAX_LEN = 2000;
 

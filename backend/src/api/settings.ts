@@ -28,7 +28,8 @@ const FIELDS: Record<string, FieldDef> = {
 
 function maskValue(value: string): string {
   if (!value) return "";
-  if (value.length <= 8) return "…";
+  // 6 + 4 visible chars: anything ≤ 10 long would be fully revealed by the hint.
+  if (value.length <= 10) return "…";
   return `${value.slice(0, 6)}…${value.slice(-4)}`;
 }
 

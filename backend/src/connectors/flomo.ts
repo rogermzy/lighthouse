@@ -49,10 +49,13 @@ function parseFlomoRss(xml: string): FlomoMemo[] {
       ?? "";
     const pubDate = pick(block, /<pubDate>([\s\S]*?)<\/pubDate>/i) ?? "";
     if (!guid || !rawBody) continue;
-    const content = stripHtml(rawBody).trim();
+    // Strip tags BEFORE decoding entities — decoding first turns a memo like
+    // "5 &lt; 10 and x &gt; 2" into text whose middle span looks like a tag
+    // and gets deleted. (workflowy.ts does it in this order too.)
+    const content = decodeEntities(stripHtml(rawBody)).trim();
     if (!content) continue;
     items.push({
-      guid: guid.trim(),
+      guid: decodeEntities(guid).trim(),
       content,
       createdAt: pubDate ? new Date(pubDate).toISOString() : nowIso(),
     });
@@ -60,9 +63,11 @@ function parseFlomoRss(xml: string): FlomoMemo[] {
   return items;
 }
 
+// Returns the raw match — entity decoding happens at each use site, AFTER
+// any tag stripping (see parseFlomoRss).
 function pick(s: string, re: RegExp): string | undefined {
   const m = re.exec(s);
-  return m ? decodeEntities(m[1]) : undefined;
+  return m ? m[1] : undefined;
 }
 
 function stripHtml(s: string): string {
@@ -73,13 +78,15 @@ function stripHtml(s: string): string {
 }
 
 function decodeEntities(s: string): string {
+  // &amp; decodes LAST — decoding it first turns "&amp;lt;" into "&lt;" and
+  // then into "<" (double-decode).
   return s
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
 }
 
 // Heuristic mood detection — if the memo contains a known #mood tag, use it.
@@ -103,7 +110,7 @@ export const flomoConnector: Connector = {
 
   async sync() {
     const url = process.env.FLOMO_RSS_URL!;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) throw new Error(`Flomo RSS ${res.status}: ${await res.text()}`);
     const xml = await res.text();
     const memos = parseFlomoRss(xml);

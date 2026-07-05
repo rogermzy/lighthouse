@@ -1,7 +1,7 @@
 /* global React, SOURCES, TAGS, TASKS, CALENDAR, FREE_BLOCKS, FREE_TOTAL, BEST_BLOCK,
           fmtTime, fmtDuration, Icon, SourceChip, TagChip */
 
-const { useState } = React;
+const { useState, useMemo } = React;
 
 /* ─────────────────────────────────────────────────────────────
    Calendar page — full day view
@@ -609,6 +609,35 @@ function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onC
     return out;
   }, [goals, tasksByGoal]);
 
+  // Which goal ids actually got rendered into a section above. A task linked
+  // to a goal that DIDN'T render — e.g. a monthly whose quarterly parent was
+  // deleted, so its parent chain never reaches an annual — would otherwise
+  // vanish (it's in tasksByGoal.map, not .unlinked, but no section shows it).
+  const renderedGoalIds = React.useMemo(() => {
+    const ids = new Set();
+    for (const { sectionGoals } of sections) {
+      for (const sg of sectionGoals) ids.add(sg.goal.id);
+    }
+    return ids;
+  }, [sections]);
+
+  // Unlinked bucket = truly goal-less tasks PLUS any linked-but-unrendered
+  // orphans, re-sorted together by weight then lane so nothing disappears.
+  const unlinkedTasks = React.useMemo(() => {
+    const orphans = [];
+    for (const [goalId, arr] of tasksByGoal.map) {
+      if (!renderedGoalIds.has(goalId)) orphans.push(...arr);
+    }
+    if (orphans.length === 0) return tasksByGoal.unlinked;
+    const LANE_RANK = { now: 0, today: 1, this_week: 2, this_month: 3, backlog: 4 };
+    const sortFn = (a, b) => {
+      const dw = (b.weight ?? 0) - (a.weight ?? 0);
+      if (Math.abs(dw) > 0.02) return dw;
+      return (LANE_RANK[a.lane] ?? 5) - (LANE_RANK[b.lane] ?? 5);
+    };
+    return [...tasksByGoal.unlinked, ...orphans].sort(sortFn);
+  }, [tasksByGoal, renderedGoalIds]);
+
   const totalLinked = React.useMemo(
     () => [...tasksByGoal.map.values()].reduce((n, arr) => n + arr.length, 0),
     [tasksByGoal]
@@ -616,7 +645,7 @@ function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onC
 
   return (
     <>
-      {sections.length === 0 && tasksByGoal.unlinked.length === 0 && (
+      {sections.length === 0 && unlinkedTasks.length === 0 && (
         <div className="empty-state" style={{ padding: "60px 20px", marginTop: 28 }}>
           <div className="empty-state-icon" />
           <div className="empty-state-title">No tasks yet.</div>
@@ -660,7 +689,7 @@ function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onC
         </section>
       ))}
 
-      {tasksByGoal.unlinked.length > 0 && (
+      {unlinkedTasks.length > 0 && (
         <section className="goal-tasks-section" style={{ marginTop: 32 }}>
           <div className="section-head">
             <div>
@@ -670,13 +699,13 @@ function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onC
               </div>
             </div>
             <div className="section-meta">
-              <b>{tasksByGoal.unlinked.length}</b>
+              <b>{unlinkedTasks.length}</b>
             </div>
           </div>
           <LaneListSection
             title=""
             sub=""
-            tasks={tasksByGoal.unlinked}
+            tasks={unlinkedTasks}
             doneSet={doneSet}
             toggleDone={toggleDone}
             onOpenDetail={onOpenDetail}
@@ -687,7 +716,7 @@ function GoalGroupedTasks({ tasks, goals, doneSet, toggleDone, onOpenDetail, onC
         </section>
       )}
 
-      {totalLinked === 0 && tasksByGoal.unlinked.length === 0 && (
+      {totalLinked === 0 && unlinkedTasks.length === 0 && (
         <div style={{ marginTop: 28, fontSize: 12, color: "var(--muted-2)", fontStyle: "italic" }}>
           Once tasks are linked to your goals (via the Goal page's ✨ Break into tasks button, or as the enrichment agent classifies new syncs), they'll cluster here.
         </div>
@@ -708,7 +737,10 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
     tasks.forEach(t => { const k = t.parentTaskId || "__root"; (byParent[k] ||= []).push(t); });
     const present = new Set(tasks.map(t => t.id));
     const out = [];
+    const visited = new Set();
     const walk = (node, depth) => {
+      if (visited.has(node.id)) return; // cycle guard — bad parent data must not loop or dup
+      visited.add(node.id);
       const kids = byParent[node.id] || [];
       out.push({ task: node, depth, childCount: kids.length });
       kids.forEach(ch => walk(ch, depth + 1));
@@ -717,6 +749,9 @@ function LaneListSection({ title, sub, tasks, doneSet, toggleDone, onOpenDetail,
     tasks.forEach(t => { if (t.parentTaskId && !present.has(t.parentTaskId)) roots.push(t); });
     roots.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
     roots.forEach(r => walk(r, 0));
+    // A cyclic parent chain (A↔B) never reaches a root — render those flat
+    // rather than dropping them, so the header count matches visible rows.
+    tasks.forEach(t => { if (!visited.has(t.id)) walk(t, 0); });
     return out;
   }, [tasks]);
   return (
@@ -941,7 +976,15 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
   // default to unchecked (the user already has something there).
   const [selected, setSelected] = React.useState(new Set());
 
+  // Abort plumbing: closing the modal unmounts it, which aborts the in-flight
+  // request — the fetch signal reaches the server route, which cancels the
+  // agent run instead of letting an expensive call burn to completion.
+  const abortRef = React.useRef(null);
+
   const fetchProposal = React.useCallback(async (refinementText) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setPhase("loading");
     setErrorMsg("");
     try {
@@ -949,12 +992,14 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(refinementText ? { refinement: refinementText } : {}),
+        signal: ctrl.signal,
       });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
         throw new Error(body.detail || body.error || `${r.status}`);
       }
       const data = await r.json();
+      if (ctrl.signal.aborted) return;
       setProposal(data);
       // Default-select forward-looking proposals that don't conflict with
       // an existing milestone. Skip "past" entries — those are retrospectives
@@ -969,12 +1014,16 @@ function BreakdownModal({ annual, onClose, onCommitted }) {
       setSelected(next);
       setPhase("review");
     } catch (err) {
+      if (err?.name === "AbortError" || abortRef.current?.signal.aborted) return; // modal closed mid-run
       setErrorMsg(err.message || String(err));
       setPhase("error");
     }
   }, [annual.id]);
 
-  React.useEffect(() => { fetchProposal(); }, [fetchProposal]);
+  React.useEffect(() => {
+    fetchProposal();
+    return () => abortRef.current?.abort();
+  }, [fetchProposal]);
 
   const toggle = (key) => {
     setSelected(prev => {
@@ -1212,6 +1261,9 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
 
   React.useEffect(() => {
     let cancelled = false;
+    // Signal so closing the modal cancels the agent run server-side instead
+    // of just ignoring its eventual response.
+    const ctrl = new AbortController();
     (async () => {
       setPhase("loading");
       try {
@@ -1219,6 +1271,7 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
+          signal: ctrl.signal,
         });
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));
@@ -1233,13 +1286,13 @@ function TaskBreakdownModal({ monthly, onClose, onCommitted }) {
         setSelectedExisting(new Set((data.relatedExisting || []).map((x) => x.id)));
         setPhase("review");
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && err?.name !== "AbortError") {
           setErrorMsg(err.message || String(err));
           setPhase("error");
         }
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; ctrl.abort(); };
   }, [monthly.id]);
 
   const toggle = (i) => {
@@ -1924,17 +1977,25 @@ function SuggestionModal({ open, onClose, onAcceptAll, onAccept }) {
         {!loading && suggestions && (
         <div className="suggest-list">
           {suggestions.map((s, i) => {
-            const annual = s.annual;
+            // annual/goal can be missing when the goal chain is dangling
+            // (deleted parent) — there's no error boundary, so an unguarded
+            // .color here white-screens the whole app.
+            const annual = s.annual || {};
+            const goal = s.goal || {};
             return (
               <div key={i} className="suggest-row">
-                <div className="suggest-num" style={{ background: annual.color }}>{i + 1}</div>
+                <div className="suggest-num" style={{ background: annual.color || "var(--muted-2)" }}>{i + 1}</div>
                 <div className="suggest-body">
-                  <div className="suggest-task">{s.task?.title || s.goal.nextStep}</div>
+                  <div className="suggest-task">{s.task?.title || goal.nextStep}</div>
                   <div className="suggest-chain">
                     laddering to
-                    <span className="suggest-chain-link">{s.goal.title}</span>
-                    →
-                    <span className="suggest-chain-link" style={{ color: annual.color }}>{annual.title}</span>
+                    <span className="suggest-chain-link">{goal.title}</span>
+                    {annual.title && (
+                      <>
+                        →
+                        <span className="suggest-chain-link" style={{ color: annual.color }}>{annual.title}</span>
+                      </>
+                    )}
                   </div>
                   <div className="suggest-reason">{s.reason}</div>
                 </div>
@@ -2615,6 +2676,19 @@ function SyncStatusLine({ sync, msg, label }) {
    one-click access to common state changes.
    ───────────────────────────────────────────────────────────── */
 function TaskDetailModal({ open, task, goals, subtasks, onClose, onToggleDone, onToggleSubtask, onChangeLane, onTogglePin, onTriageInbox, onCompleteInbox, onPinInbox, onBreakdown }) {
+  // Hooks run unconditionally, BEFORE the open/task guard — an early return
+  // above a hook makes the next open render a hook-count mismatch waiting to
+  // happen ("Rendered more hooks than during the previous render").
+  const goal = React.useMemo(() => {
+    if (!task?.primaryGoalId || !goals) return null;
+    const all = [
+      ...(goals.annual    || []).map(g => ({ ...g, horizon: "Annual"    })),
+      ...(goals.quarterly || []).map(g => ({ ...g, horizon: "Quarterly" })),
+      ...(goals.monthly   || []).map(g => ({ ...g, horizon: "Monthly"   })),
+    ];
+    return all.find(g => g.id === task.primaryGoalId) || null;
+  }, [task?.primaryGoalId, goals]);
+
   if (!open || !task) return null;
   const source = SOURCES[task.source];
   const tag = TAGS[task.tag];
@@ -2628,16 +2702,6 @@ function TaskDetailModal({ open, task, goals, subtasks, onClose, onToggleDone, o
   // then pins, Done promotes-then-completes, and Drop discards. Same buttons
   // as a real task — just a different plumbing underneath, plus a Drop.
   const isInbox = task.lane === "inbox";
-
-  const goal = React.useMemo(() => {
-    if (!task.primaryGoalId || !goals) return null;
-    const all = [
-      ...(goals.annual    || []).map(g => ({ ...g, horizon: "Annual"    })),
-      ...(goals.quarterly || []).map(g => ({ ...g, horizon: "Quarterly" })),
-      ...(goals.monthly   || []).map(g => ({ ...g, horizon: "Monthly"   })),
-    ];
-    return all.find(g => g.id === task.primaryGoalId) || null;
-  }, [task.primaryGoalId, goals]);
 
   // Now⊂Today: show the "Now" button only when the task is currently in Now
   // (so we have an active-state indicator) or in Today (where it's a valid
@@ -3596,18 +3660,25 @@ function PlanDayModal({ open, onClose, onAcceptAll, onAccept }) {
         {!loading && picks && picks.length > 0 && (
           <div className="suggest-list">
             {picks.map((p, i) => {
-              const annual = p.annual;
+              // annual/goal can be missing on a dangling goal chain — no
+              // error boundary exists, so an unguarded .color unmounts the app.
+              const annual = p.annual || {};
+              const goal = p.goal || {};
               const state = rowState[i] || "idle";
               return (
                 <div key={i} className="suggest-row">
-                  <div className="suggest-num" style={{ background: annual.color }}>{i + 1}</div>
+                  <div className="suggest-num" style={{ background: annual.color || "var(--muted-2)" }}>{i + 1}</div>
                   <div className="suggest-body">
-                    <div className="suggest-task">{p.task?.title || p.goal.nextStep || p.goal.title}</div>
+                    <div className="suggest-task">{p.task?.title || goal.nextStep || goal.title}</div>
                     <div className="suggest-chain">
                       laddering to
-                      <span className="suggest-chain-link">{p.goal.title}</span>
-                      →
-                      <span className="suggest-chain-link" style={{ color: annual.color }}>{annual.title}</span>
+                      <span className="suggest-chain-link">{goal.title}</span>
+                      {annual.title && (
+                        <>
+                          →
+                          <span className="suggest-chain-link" style={{ color: annual.color }}>{annual.title}</span>
+                        </>
+                      )}
                     </div>
                     <div className="suggest-reason">{p.reason}</div>
                   </div>

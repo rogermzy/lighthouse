@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, chmodSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,15 +23,23 @@ export function readTokens(provider: string): Record<string, unknown> | null {
   return all[provider] ?? null;
 }
 
-export function writeTokens(provider: string, tokens: Record<string, unknown>): void {
-  const all = readAll();
-  all[provider] = tokens;
-  writeFileSync(TOKEN_FILE, JSON.stringify(all, null, 2));
+// tmp + rename: atomic replace, and the file is 0600 from birth instead of
+// existing world-readable for the instant before a post-hoc chmod.
+function writeAll(all: AllTokens): void {
+  const tmp = `${TOKEN_FILE}.tmp`;
+  writeFileSync(tmp, JSON.stringify(all, null, 2), { mode: 0o600 });
   try {
-    chmodSync(TOKEN_FILE, 0o600);
+    chmodSync(tmp, 0o600); // mode option is ignored if tmp already existed
   } catch {
     // Non-fatal on filesystems that don't support chmod (e.g. Windows).
   }
+  renameSync(tmp, TOKEN_FILE);
+}
+
+export function writeTokens(provider: string, tokens: Record<string, unknown>): void {
+  const all = readAll();
+  all[provider] = tokens;
+  writeAll(all);
 }
 
 export function hasTokens(provider: string): boolean {
@@ -42,10 +50,5 @@ export function hasTokens(provider: string): boolean {
 export function deleteTokens(provider: string): void {
   const all = readAll();
   delete all[provider];
-  writeFileSync(TOKEN_FILE, JSON.stringify(all, null, 2));
-  try {
-    chmodSync(TOKEN_FILE, 0o600);
-  } catch {
-    // Non-fatal on filesystems that don't support chmod.
-  }
+  writeAll(all);
 }

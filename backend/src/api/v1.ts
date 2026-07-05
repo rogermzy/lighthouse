@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { db, nowIso, runTx } from "../db/client.js";
 import { checkBearer } from "../auth/api-token.js";
+import { VALID_MOODS } from "./journal.js";
 
 export const v1Api = new Hono();
 
@@ -20,7 +21,6 @@ const VALID_SOURCES = new Set([
   "clickup", "workflowy", "linear", "things", "notion", "email", "gcal", "gtasks", "self", "agent",
 ]);
 const VALID_LANES = new Set(["now", "today", "this_week", "this_month", "backlog"]);
-const VALID_MOODS = new Set(["calm", "focused", "scattered", "drained", "buzzy", "low"]);
 const VALID_TAGS  = new Set(["deep", "shallow", "admin", "comms", "personal", "errand"]);
 
 // Relative due-date keywords accepted in addition to ISO YYYY-MM-DD.
@@ -48,8 +48,9 @@ const insertTask = db.prepare(`
      NULL, :now, :now)
 `);
 
+// Top-level only — breakdown children don't consume Today slots (see tasks.ts).
 const countTodayUndone = db.prepare(
-  "SELECT COUNT(*) as n FROM tasks WHERE lane = 'today' AND done_at IS NULL"
+  "SELECT COUNT(*) as n FROM tasks WHERE lane = 'today' AND done_at IS NULL AND parent_task_id IS NULL"
 );
 
 const insertJournal = db.prepare(`

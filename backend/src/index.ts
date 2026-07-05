@@ -1,6 +1,6 @@
 // Load .env before anything else so connector modules see the keys.
 import { existsSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { dirname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -79,11 +79,30 @@ const MIME: Record<string, string> = {
 
 app.get("/*", async (c) => {
   const reqPath = c.req.path === "/" ? "/Lighthouse Dashboard.html" : c.req.path;
-  const decoded = decodeURIComponent(reqPath);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(reqPath);
+  } catch {
+    return c.notFound(); // malformed percent-encoding (/%zz) is a 404, not a 500
+  }
   const safe = normalize(decoded).replace(/^(\.\.[/\\])+/, "");
   const filePath = join(FRONTEND_ROOT, safe);
 
   if (!filePath.startsWith(FRONTEND_ROOT)) return c.notFound();
+
+  // The repo root doubles as the web root (no build step), so everything
+  // that isn't frontend must be explicitly off-limits: backend/ holds .env
+  // and data.db, dotfiles hold git state — with HOST=0.0.0.0 (Tailscale
+  // mode) serving those would hand out every credential on the tailnet.
+  const rel = relative(FRONTEND_ROOT, filePath);
+  const segments = rel.split(/[/\\]/);
+  if (
+    segments[0] === "backend" ||
+    segments[0] === "node_modules" ||
+    segments.some((s) => s.startsWith("."))
+  ) {
+    return c.notFound();
+  }
 
   try {
     const s = await stat(filePath);
